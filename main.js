@@ -55,6 +55,7 @@ var DEFAULT_SETTINGS = {
   tagPrefix: "book",
   includeCover: true,
   includeDescription: true,
+  includeReview: true,
   includeReadingSections: false,
   includeHighlights: true,
   goodreadsCookie: "",
@@ -247,18 +248,25 @@ var GoodreadsService = class {
     const items = Array.from(xmlDoc.querySelectorAll("item"));
     const books = [];
     for (const item of items) {
-      const bookId = item.querySelector("book_id")?.textContent?.trim() || item.querySelector("book")?.getAttribute("id") || item.querySelector("guid")?.textContent?.trim() || "";
+      const getTagText = (tag) => {
+        const byTag = item.getElementsByTagName(tag)[0]?.textContent;
+        if (byTag !== void 0 && byTag !== null) return byTag.trim();
+        const byQuery = item.querySelector(tag)?.textContent;
+        if (byQuery !== void 0 && byQuery !== null) return byQuery.trim();
+        return "";
+      };
+      const bookId = getTagText("book_id") || item.querySelector("book")?.getAttribute("id") || getTagText("guid") || "";
       const title = this.cleanText(
-        item.querySelector("title")?.textContent || "Untitled Book"
+        getTagText("title") || "Untitled Book"
       );
       let author = this.cleanText(
-        item.querySelector("author_name")?.textContent || "Unknown Author"
+        getTagText("author_name") || "Unknown Author"
       );
       author = author.replace(/\s+/g, " ");
-      const isbn = item.querySelector("isbn")?.textContent?.trim() || "";
-      const bookLargeImageUrl = item.querySelector("book_large_image_url")?.textContent?.trim() || "";
-      const bookMediumImageUrl = item.querySelector("book_medium_image_url")?.textContent?.trim() || "";
-      const bookImageUrl = item.querySelector("book_image_url")?.textContent?.trim() || "";
+      const isbn = getTagText("isbn") || "";
+      const bookLargeImageUrl = getTagText("book_large_image_url") || "";
+      const bookMediumImageUrl = getTagText("book_medium_image_url") || "";
+      const bookImageUrl = getTagText("book_image_url") || "";
       let coverUrl = bookLargeImageUrl || bookMediumImageUrl || bookImageUrl || "";
       if (coverUrl.includes("nophoto")) {
         coverUrl = "";
@@ -267,27 +275,45 @@ var GoodreadsService = class {
       if (largeCoverUrl.includes("nophoto")) {
         largeCoverUrl = "";
       }
-      const rawUserRating = item.querySelector("user_rating")?.textContent?.trim() || "0";
+      const rawDescription = item.getElementsByTagName("description")[0]?.textContent || item.querySelector("description")?.textContent || "";
+      let rawUserRating = getTagText("user_rating") || getTagText("rating") || "";
+      if (!rawUserRating || rawUserRating === "0") {
+        const descRatingMatch = rawDescription.match(
+          /(?:^|[\r\n]|<br\s*[\/]?>)\s*(?:user\s+)?rating:\s*([0-5])/i
+        );
+        if (descRatingMatch) {
+          rawUserRating = descRatingMatch[1];
+        }
+      }
       const userRating = parseInt(rawUserRating, 10) || 0;
-      const rawAvgRating = item.querySelector("average_rating")?.textContent?.trim() || "0";
+      const rawAvgRating = getTagText("average_rating") || "0";
       const averageRating = parseFloat(rawAvgRating) || 0;
-      const pagesText = item.querySelector("num_pages")?.textContent?.trim() || item.querySelector("book > num_pages")?.textContent?.trim() || "";
+      const pagesText = getTagText("num_pages") || item.querySelector("book > num_pages")?.textContent?.trim() || "";
       const pages = pagesText ? parseInt(pagesText, 10) || null : null;
-      const publishedYear = item.querySelector("book_published")?.textContent?.trim() || "";
-      const userReadAt = this.formatDate(
-        item.querySelector("user_read_at")?.textContent?.trim() || ""
-      );
+      const publishedYear = getTagText("book_published") || "";
+      const userReadAt = this.formatDate(getTagText("user_read_at") || "");
       const userDateAdded = this.formatDate(
-        item.querySelector("user_date_added")?.textContent?.trim() || item.querySelector("pubDate")?.textContent?.trim() || ""
+        getTagText("user_date_added") || getTagText("pubDate") || ""
       );
-      const rawShelves = item.querySelector("user_shelves")?.textContent?.trim() || "";
+      const rawShelves = getTagText("user_shelves") || "";
       const userShelves = rawShelves ? rawShelves.split(",").map((s) => s.trim()).filter((s) => s.length > 0) : [];
-      const userReviewHtml = item.querySelector("user_review")?.textContent?.trim() || "";
-      const userReview = this.cleanHtmlToMarkdown(userReviewHtml);
-      const bookDescHtml = item.querySelector("book_description")?.textContent?.trim() || "";
+      let userReviewHtml = getTagText("user_review") || getTagText("review") || "";
+      if (!userReviewHtml || userReviewHtml.replace(/<[^>]+>/g, "").trim().length === 0) {
+        const descReviewMatch = rawDescription.match(
+          /(?:^|[\r\n]|<br\s*[\/]?>)\s*review:\s*<br\s*[\/]?>([\s\S]*?)(?:<br\s*[\/]?>\s*<br\s*[\/]?>|\]\]>|$)/i
+        );
+        if (descReviewMatch && descReviewMatch[1].trim()) {
+          userReviewHtml = descReviewMatch[1].trim();
+        }
+      }
+      let userReview = this.cleanHtmlToMarkdown(userReviewHtml);
+      if (userReview === "<br/>" || userReview === "<br />") {
+        userReview = "";
+      }
+      const bookDescHtml = getTagText("book_description") || "";
       const description = this.cleanHtmlToMarkdown(bookDescHtml);
-      const link = item.querySelector("link")?.textContent?.trim() || "";
-      const guid = item.querySelector("guid")?.textContent?.trim() || "";
+      const link = getTagText("link") || "";
+      const guid = getTagText("guid") || "";
       let shelf = requestedShelf;
       if (shelf === "all") {
         if (userReadAt || userRating > 0) {
@@ -656,6 +682,14 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian3.Setting(container).setName("Include Personal Review & Rating").setDesc(
+      "Include your personal Goodreads star rating and written review in the generated note."
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.includeReview).onChange(async (val) => {
+        this.plugin.settings.includeReview = val;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian3.Setting(container).setName("Include Reading Note Sections").setDesc(
       "Adds blank reflection headings for 'Key Takeaways', 'Memorable Quotes', and 'Personal Notes'. Recommended OFF if you prefer clean notes or already extract Kindle highlights."
     ).addToggle(
@@ -945,6 +979,17 @@ var NoteService = class {
       bodyLines.push("## Synopsis");
       bodyLines.push(book.description);
       bodyLines.push("");
+    }
+    if (this.settings.includeReview && (book.userReview || book.userRating > 0)) {
+      bodyLines.push("## My Review");
+      if (book.userRating > 0) {
+        bodyLines.push(`**Rating:** ${starString} (${book.userRating}/5)`);
+        bodyLines.push("");
+      }
+      if (book.userReview) {
+        bodyLines.push(book.userReview);
+        bodyLines.push("");
+      }
     }
     if (this.settings.includeHighlights && highlights.length > 0) {
       bodyLines.push(this.formatHighlightsMarkdown(highlights));

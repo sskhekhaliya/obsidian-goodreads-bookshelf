@@ -203,29 +203,34 @@ export class GoodreadsService {
     const books: GoodreadsBook[] = [];
 
     for (const item of items) {
+      const getTagText = (tag: string): string => {
+        const byTag = item.getElementsByTagName(tag)[0]?.textContent;
+        if (byTag !== undefined && byTag !== null) return byTag.trim();
+        const byQuery = item.querySelector(tag)?.textContent;
+        if (byQuery !== undefined && byQuery !== null) return byQuery.trim();
+        return "";
+      };
+
       const bookId =
-        item.querySelector("book_id")?.textContent?.trim() ||
+        getTagText("book_id") ||
         item.querySelector("book")?.getAttribute("id") ||
-        item.querySelector("guid")?.textContent?.trim() ||
+        getTagText("guid") ||
         "";
 
       const title = this.cleanText(
-        item.querySelector("title")?.textContent || "Untitled Book"
+        getTagText("title") || "Untitled Book"
       );
 
       let author = this.cleanText(
-        item.querySelector("author_name")?.textContent || "Unknown Author"
+        getTagText("author_name") || "Unknown Author"
       );
       author = author.replace(/\s+/g, " ");
 
-      const isbn = item.querySelector("isbn")?.textContent?.trim() || "";
+      const isbn = getTagText("isbn") || "";
 
-      const bookLargeImageUrl =
-        item.querySelector("book_large_image_url")?.textContent?.trim() || "";
-      const bookMediumImageUrl =
-        item.querySelector("book_medium_image_url")?.textContent?.trim() || "";
-      const bookImageUrl =
-        item.querySelector("book_image_url")?.textContent?.trim() || "";
+      const bookLargeImageUrl = getTagText("book_large_image_url") || "";
+      const bookMediumImageUrl = getTagText("book_medium_image_url") || "";
+      const bookImageUrl = getTagText("book_image_url") || "";
 
       let coverUrl =
         bookLargeImageUrl || bookMediumImageUrl || bookImageUrl || "";
@@ -238,32 +243,46 @@ export class GoodreadsService {
         largeCoverUrl = "";
       }
 
-      const rawUserRating = item.querySelector("user_rating")?.textContent?.trim() || "0";
+      // Raw description contains fallback metadata in RSS feeds
+      const rawDescription =
+        item.getElementsByTagName("description")[0]?.textContent ||
+        item.querySelector("description")?.textContent ||
+        "";
+
+      // User rating extraction with multiple robust fallbacks:
+      let rawUserRating =
+        getTagText("user_rating") ||
+        getTagText("rating") ||
+        "";
+
+      if (!rawUserRating || rawUserRating === "0") {
+        // Fallback from description: search for standalone "rating: 5" (not "average rating: 4.38")
+        const descRatingMatch = rawDescription.match(
+          /(?:^|[\r\n]|<br\s*[\/]?>)\s*(?:user\s+)?rating:\s*([0-5])/i
+        );
+        if (descRatingMatch) {
+          rawUserRating = descRatingMatch[1];
+        }
+      }
       const userRating = parseInt(rawUserRating, 10) || 0;
 
-      const rawAvgRating = item.querySelector("average_rating")?.textContent?.trim() || "0";
+      const rawAvgRating = getTagText("average_rating") || "0";
       const averageRating = parseFloat(rawAvgRating) || 0;
 
       const pagesText =
-        item.querySelector("num_pages")?.textContent?.trim() ||
+        getTagText("num_pages") ||
         item.querySelector("book > num_pages")?.textContent?.trim() ||
         "";
       const pages = pagesText ? parseInt(pagesText, 10) || null : null;
 
-      const publishedYear =
-        item.querySelector("book_published")?.textContent?.trim() || "";
+      const publishedYear = getTagText("book_published") || "";
 
-      const userReadAt = this.formatDate(
-        item.querySelector("user_read_at")?.textContent?.trim() || ""
-      );
+      const userReadAt = this.formatDate(getTagText("user_read_at") || "");
       const userDateAdded = this.formatDate(
-        item.querySelector("user_date_added")?.textContent?.trim() ||
-          item.querySelector("pubDate")?.textContent?.trim() ||
-          ""
+        getTagText("user_date_added") || getTagText("pubDate") || ""
       );
 
-      const rawShelves =
-        item.querySelector("user_shelves")?.textContent?.trim() || "";
+      const rawShelves = getTagText("user_shelves") || "";
       const userShelves = rawShelves
         ? rawShelves
             .split(",")
@@ -271,16 +290,32 @@ export class GoodreadsService {
             .filter((s) => s.length > 0)
         : [];
 
-      const userReviewHtml =
-        item.querySelector("user_review")?.textContent?.trim() || "";
-      const userReview = this.cleanHtmlToMarkdown(userReviewHtml);
+      // User review extraction with multiple robust fallbacks:
+      let userReviewHtml =
+        getTagText("user_review") ||
+        getTagText("review") ||
+        "";
 
-      const bookDescHtml =
-        item.querySelector("book_description")?.textContent?.trim() || "";
+      // If user_review is empty or only HTML tags, check description for review text:
+      if (!userReviewHtml || userReviewHtml.replace(/<[^>]+>/g, "").trim().length === 0) {
+        const descReviewMatch = rawDescription.match(
+          /(?:^|[\r\n]|<br\s*[\/]?>)\s*review:\s*<br\s*[\/]?>([\s\S]*?)(?:<br\s*[\/]?>\s*<br\s*[\/]?>|\]\]>|$)/i
+        );
+        if (descReviewMatch && descReviewMatch[1].trim()) {
+          userReviewHtml = descReviewMatch[1].trim();
+        }
+      }
+
+      let userReview = this.cleanHtmlToMarkdown(userReviewHtml);
+      if (userReview === "<br/>" || userReview === "<br />") {
+        userReview = "";
+      }
+
+      const bookDescHtml = getTagText("book_description") || "";
       const description = this.cleanHtmlToMarkdown(bookDescHtml);
 
-      const link = item.querySelector("link")?.textContent?.trim() || "";
-      const guid = item.querySelector("guid")?.textContent?.trim() || "";
+      const link = getTagText("link") || "";
+      const guid = getTagText("guid") || "";
 
       let shelf = requestedShelf;
       if (shelf === "all") {

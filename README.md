@@ -90,6 +90,11 @@ tags:
 ## Synopsis
 Frans Gunnar Bengtsson’s The Long Ships resurrects the fantastic world of the tenth century AD...
 
+## My Review
+**Rating:** ★★★★★ (5/5)
+
+I love good historical fiction that brings an era to life, and this did this with the viking era magically well.
+
 ## Highlights & Annotations
 
 > In France the Northmen were so feared that, in 911, Charles the Simple ceded part of his kingdom to them; this came to be known as Normandy, the Northmen’s land.

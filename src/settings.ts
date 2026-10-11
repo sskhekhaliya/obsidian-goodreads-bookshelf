@@ -428,6 +428,19 @@ export class GoodreadsSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(container)
+      .setName("Include Personal Review & Rating")
+      .setDesc(
+        "Include your personal Goodreads star rating and written review in the generated note."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.includeReview)
+          .onChange(async (val) => {
+            this.plugin.settings.includeReview = val;
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(container)
       .setName("Include Reading Note Sections")
