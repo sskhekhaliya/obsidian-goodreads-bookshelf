@@ -1,0 +1,31 @@
+{
+  "name": "obsidian-goodreads-bookshelf",
+  "version": "1.0.0",
+  "description": "Browse your Goodreads bookshelves directly in Obsidian and generate rich reading notes with a single click. Sync covers, ratings, reviews, and Kindle highlights with clean filenames and customizable frontmatter properties.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "check": "tsc --noEmit"
+  },
+  "keywords": [
+    "obsidian",
+    "goodreads",
+    "bookshelf",
+    "reading-tracker",
+    "books",
+    "book-notes",
+    "library"
+  ],
+  "author": {
+    "name": "SSKhekhaliya",
+    "url": "https://www.sskhekhaliya.in/"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "esbuild": "^0.24.0",
+    "obsidian": "latest",
+    "typescript": "^5.5.4"
+  }
+}

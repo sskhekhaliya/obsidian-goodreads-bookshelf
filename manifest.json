@@ -1,0 +1,11 @@
+{
+  "id": "obsidian-goodreads-bookshelf",
+  "name": "Goodreads Bookshelf",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "Browse your Goodreads bookshelves directly in Obsidian and generate rich reading notes with a single click. Sync covers, ratings, reviews, and Kindle highlights with clean filenames and customizable frontmatter properties.",
+  "author": "SSKhekhaliya",
+  "authorUrl": "https://www.sskhekhaliya.in/",
+  "fundingUrl": "https://buymeacoffee.com/sskhekhaliya",
+  "isDesktopOnly": false
+}
