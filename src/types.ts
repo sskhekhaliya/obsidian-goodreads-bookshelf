@@ -68,7 +68,6 @@ export interface GoodreadsPluginSettings {
   tagPrefix: string;
   includeCover: boolean;
   includeDescription: boolean;
-  includeReview: boolean;
   includeReadingSections: boolean;
   includeHighlights: boolean;
   goodreadsCookie: string;
@@ -88,7 +87,6 @@ export const DEFAULT_SETTINGS: GoodreadsPluginSettings = {
   tagPrefix: "book",
   includeCover: true,
   includeDescription: true,
-  includeReview: true,
   includeReadingSections: false,
   includeHighlights: true,
   goodreadsCookie: "",

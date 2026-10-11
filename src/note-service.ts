@@ -292,19 +292,6 @@ export class NoteService {
       bodyLines.push("");
     }
 
-    // Personal Review & Rating
-    if (this.settings.includeReview && (book.userRating > 0 || book.userReview)) {
-      bodyLines.push("## My Review & Rating");
-      if (book.userRating > 0) {
-        bodyLines.push(`**Rating:** ${starString} (${book.userRating}/5)`);
-        bodyLines.push("");
-      }
-      if (book.userReview) {
-        bodyLines.push(book.userReview);
-        bodyLines.push("");
-      }
-    }
-
     // Highlights & Annotations (if passed)
     if (this.settings.includeHighlights && highlights.length > 0) {
       bodyLines.push(this.formatHighlightsMarkdown(highlights));

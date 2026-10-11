@@ -1,6 +1,6 @@
 # Goodreads Bookshelf for Obsidian
 
-An elegant Obsidian plugin to browse your **Goodreads bookshelves** directly within Obsidian and generate rich, formatted book notes with a single click — complete with **Kindle Highlights & Annotations** and personal reviews.
+An elegant Obsidian plugin to browse your **Goodreads bookshelves** directly within Obsidian and generate rich, formatted book notes with a single click — complete with **Kindle Highlights & Annotations**.
 
 [![Buy Me a Book](https://img.shields.io/badge/Buy%20Me%20a%20Book-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/sskhekhaliya)
 [![Obsidian](https://img.shields.io/badge/Obsidian-v1.5.0+-7C3AED?style=for-the-badge&logo=obsidian&logoColor=white)](https://obsidian.md)
@@ -12,7 +12,7 @@ An elegant Obsidian plugin to browse your **Goodreads bookshelves** directly wit
 
 - 📚 **Visual Bookshelf View**: Browse your books in a stunning grid with book covers, star ratings, page counts, and publication years, or switch to a clean list view.
 - 🖍️ **Kindle Notes & Highlights Extraction**: Automatically pull your Kindle highlights, progress locations (`Location: 2%`), and personal annotations for each book from Goodreads into your notes.
-- ⚡ **1-Click Note Creation**: Click any book to generate a structured reading note with YAML frontmatter, cover image, synopsis, review, highlights, and note-taking sections.
+- ⚡ **1-Click Note Creation**: Click any book to generate a structured reading note with YAML frontmatter, cover image, synopsis, and highlights.
 - 🗂️ **Multi-Shelf Support**: Seamlessly switch between `All Books`, `Currently Reading`, `Read`, and `Want to Read` (plus custom shelves like `favorites`, `sci-fi`, etc.).
 - 🔍 **Real-Time Search & Filters**: Search books by title, author, or tags. Filter by vault status (`Saved in Vault` vs `Not Yet Saved`).
 - 🚀 **Quick Search Modal**: Press `Ctrl+P` (or `Cmd+P`) and use **Goodreads: Search Goodreads Books & Create Note** to quickly look up any book and create notes without leaving your current note.
@@ -89,11 +89,6 @@ tags:
 
 ## Synopsis
 Frans Gunnar Bengtsson’s The Long Ships resurrects the fantastic world of the tenth century AD...
-
-## My Review & Rating
-**Rating:** ★★★★★ (5/5)
-
-I love good historical fiction that brings an era to life...
 
 ## Highlights & Annotations
 

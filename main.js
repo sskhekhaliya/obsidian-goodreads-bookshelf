@@ -55,7 +55,6 @@ var DEFAULT_SETTINGS = {
   tagPrefix: "book",
   includeCover: true,
   includeDescription: true,
-  includeReview: true,
   includeReadingSections: false,
   includeHighlights: true,
   goodreadsCookie: "",
@@ -657,14 +656,6 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Include Personal Review & Rating").setDesc(
-      "Include your rating (e.g. \u2605\u2605\u2605\u2605\u2605 5/5) and personal Goodreads review inside the note."
-    ).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.includeReview).onChange(async (val) => {
-        this.plugin.settings.includeReview = val;
-        await this.plugin.saveSettings();
-      })
-    );
     new import_obsidian3.Setting(container).setName("Include Reading Note Sections").setDesc(
       "Adds blank reflection headings for 'Key Takeaways', 'Memorable Quotes', and 'Personal Notes'. Recommended OFF if you prefer clean notes or already extract Kindle highlights."
     ).addToggle(
@@ -954,17 +945,6 @@ var NoteService = class {
       bodyLines.push("## Synopsis");
       bodyLines.push(book.description);
       bodyLines.push("");
-    }
-    if (this.settings.includeReview && (book.userRating > 0 || book.userReview)) {
-      bodyLines.push("## My Review & Rating");
-      if (book.userRating > 0) {
-        bodyLines.push(`**Rating:** ${starString} (${book.userRating}/5)`);
-        bodyLines.push("");
-      }
-      if (book.userReview) {
-        bodyLines.push(book.userReview);
-        bodyLines.push("");
-      }
     }
     if (this.settings.includeHighlights && highlights.length > 0) {
       bodyLines.push(this.formatHighlightsMarkdown(highlights));
