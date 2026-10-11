@@ -136,7 +136,7 @@ export class NoteService {
   public formatHighlightsMarkdown(highlights: GoodreadsHighlight[]): string {
     if (highlights.length === 0) return "";
 
-    const lines: string[] = ["## Highlights & Annotations", ""];
+    const lines: string[] = ["# Highlights & Annotations", ""];
 
     for (const h of highlights) {
       if (h.text) {
@@ -273,7 +273,6 @@ export class NoteService {
     }
 
     frontmatterLines.push("---");
-    frontmatterLines.push("");
 
     // 2. Note Body
     const bodyLines: string[] = [];
@@ -287,22 +286,34 @@ export class NoteService {
 
     // Synopsis
     if (this.settings.includeDescription && book.description) {
-      bodyLines.push("## Synopsis");
-      bodyLines.push(book.description);
+      bodyLines.push("# Synopsis");
+      const styledSynopsis = book.description
+        .split(/\n{2,}/)
+        .map((p) => `<small>${p.trim()}</small>`)
+        .join("\n\n");
+      bodyLines.push(styledSynopsis);
+      bodyLines.push("");
+      bodyLines.push("---");
       bodyLines.push("");
     }
 
-    // Personal Review & Rating (controlled by includeReview)
+    // Personal Review & Rating Callout (controlled by includeReview)
     if (this.settings.includeReview && (book.userReview || book.userRating > 0)) {
-      bodyLines.push("## My Review");
+      bodyLines.push("# My Review");
       if (book.userRating > 0) {
-        bodyLines.push(`**Rating:** ${starString} (${book.userRating}/5)`);
-        bodyLines.push("");
+        bodyLines.push(`> [!quote] **Rating:** ${starString} (${book.userRating}/5)`);
+      } else {
+        bodyLines.push("> [!quote] Review");
       }
       if (book.userReview) {
-        bodyLines.push(book.userReview);
-        bodyLines.push("");
+        const reviewLines = book.userReview.split("\n");
+        for (const line of reviewLines) {
+          bodyLines.push(line.trim() ? `> ${line}` : ">");
+        }
       }
+      bodyLines.push("");
+      bodyLines.push("---");
+      bodyLines.push("");
     }
 
     // Highlights & Annotations (if passed)
@@ -312,13 +323,13 @@ export class NoteService {
 
     // Optional manual reflection sections (if enabled in settings)
     if (this.settings.includeReadingSections) {
-      bodyLines.push("## Key Takeaways & Highlights");
+      bodyLines.push("# Key Takeaways & Highlights");
       bodyLines.push("- ");
       bodyLines.push("");
-      bodyLines.push("## Memorable Quotes");
+      bodyLines.push("# Memorable Quotes");
       bodyLines.push("> ");
       bodyLines.push("");
-      bodyLines.push("## Personal Notes & Thoughts");
+      bodyLines.push("# Personal Notes & Thoughts");
       bodyLines.push("");
     }
 
@@ -450,7 +461,7 @@ export class NoteService {
     const highlightsMd = this.formatHighlightsMarkdown(highlights);
     const currentContent = await this.app.vault.read(file);
 
-    const sectionRegex = /## Highlights & Annotations[\s\S]*?(?=\n## |$)/;
+    const sectionRegex = /#{1,6}\s+Highlights & Annotations[\s\S]*?(?=\n#{1,6}\s+|$)/;
     let newContent: string;
 
     if (sectionRegex.test(currentContent)) {

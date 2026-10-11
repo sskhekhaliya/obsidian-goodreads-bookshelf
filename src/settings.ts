@@ -351,7 +351,7 @@ export class GoodreadsSettingTab extends PluginSettingTab {
     });
 
     selectField.addEventListener("change", () => {
-      newKeyInput.value = selectField.value;
+      newKeyInput.value = selectField.value === "rating" ? "my_rating" : selectField.value;
     });
 
     const addBtn = addControls.createEl("button", {

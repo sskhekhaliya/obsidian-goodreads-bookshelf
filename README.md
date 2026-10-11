@@ -69,8 +69,7 @@ author: "Frans G. Bengtsson"
 goodreads_id: "10081041"
 shelf: "read"
 isbn: "159017416X"
-rating: 5
-rating_stars: "★★★★★"
+my_rating: 5
 average_rating: 4.38
 pages: 528
 published: "1941"
@@ -84,18 +83,20 @@ tags:
   - adventure
   - historical-fiction
 ---
-
 ![Book Cover|240](https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041.jpg)
 
-## Synopsis
-Frans Gunnar Bengtsson’s The Long Ships resurrects the fantastic world of the tenth century AD...
+# Synopsis
+<small>Frans Gunnar Bengtsson’s The Long Ships resurrects the fantastic world of the tenth century AD...</small>
 
-## My Review
-**Rating:** ★★★★★ (5/5)
+---
 
-I love good historical fiction that brings an era to life, and this did this with the viking era magically well.
+# My Review
+> [!quote] **Rating:** ★★★★★ (5/5)
+> I love good historical fiction that brings an era to life, and this did this with the viking era magically well.
 
-## Highlights & Annotations
+---
+
+# Highlights & Annotations
 
 > In France the Northmen were so feared that, in 911, Charles the Simple ceded part of his kingdom to them; this came to be known as Normandy, the Northmen’s land.
 > — *Location: 2%*

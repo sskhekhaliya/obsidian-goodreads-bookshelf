@@ -32,8 +32,7 @@ var DEFAULT_PROPERTIES = [
   { id: "prop-goodreads_id", key: "goodreads_id", field: "goodreads_id", enabled: true },
   { id: "prop-shelf", key: "shelf", field: "shelf", enabled: true },
   { id: "prop-isbn", key: "isbn", field: "isbn", enabled: true },
-  { id: "prop-rating", key: "rating", field: "rating", enabled: true },
-  { id: "prop-rating_stars", key: "rating_stars", field: "rating_stars", enabled: true },
+  { id: "prop-rating", key: "my_rating", field: "rating", enabled: true },
   { id: "prop-average_rating", key: "average_rating", field: "average_rating", enabled: true },
   { id: "prop-pages", key: "pages", field: "pages", enabled: true },
   { id: "prop-published", key: "published", field: "published", enabled: true },
@@ -625,7 +624,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
       value: "shelf"
     });
     selectField.addEventListener("change", () => {
-      newKeyInput.value = selectField.value;
+      newKeyInput.value = selectField.value === "rating" ? "my_rating" : selectField.value;
     });
     const addBtn = addControls.createEl("button", {
       text: "Add Property",
@@ -846,7 +845,7 @@ var NoteService = class {
    */
   formatHighlightsMarkdown(highlights) {
     if (highlights.length === 0) return "";
-    const lines = ["## Highlights & Annotations", ""];
+    const lines = ["# Highlights & Annotations", ""];
     for (const h of highlights) {
       if (h.text) {
         const quoteLines = h.text.split("\n");
@@ -968,7 +967,6 @@ var NoteService = class {
       }
     }
     frontmatterLines.push("---");
-    frontmatterLines.push("");
     const bodyLines = [];
     if (this.settings.includeCover && (book.largeCoverUrl || book.coverUrl)) {
       const coverUrl = book.largeCoverUrl || book.coverUrl;
@@ -976,32 +974,41 @@ var NoteService = class {
       bodyLines.push("");
     }
     if (this.settings.includeDescription && book.description) {
-      bodyLines.push("## Synopsis");
-      bodyLines.push(book.description);
+      bodyLines.push("# Synopsis");
+      const styledSynopsis = book.description.split(/\n{2,}/).map((p) => `<small>${p.trim()}</small>`).join("\n\n");
+      bodyLines.push(styledSynopsis);
+      bodyLines.push("");
+      bodyLines.push("---");
       bodyLines.push("");
     }
     if (this.settings.includeReview && (book.userReview || book.userRating > 0)) {
-      bodyLines.push("## My Review");
+      bodyLines.push("# My Review");
       if (book.userRating > 0) {
-        bodyLines.push(`**Rating:** ${starString} (${book.userRating}/5)`);
-        bodyLines.push("");
+        bodyLines.push(`> [!quote] **Rating:** ${starString} (${book.userRating}/5)`);
+      } else {
+        bodyLines.push("> [!quote] Review");
       }
       if (book.userReview) {
-        bodyLines.push(book.userReview);
-        bodyLines.push("");
+        const reviewLines = book.userReview.split("\n");
+        for (const line of reviewLines) {
+          bodyLines.push(line.trim() ? `> ${line}` : ">");
+        }
       }
+      bodyLines.push("");
+      bodyLines.push("---");
+      bodyLines.push("");
     }
     if (this.settings.includeHighlights && highlights.length > 0) {
       bodyLines.push(this.formatHighlightsMarkdown(highlights));
     }
     if (this.settings.includeReadingSections) {
-      bodyLines.push("## Key Takeaways & Highlights");
+      bodyLines.push("# Key Takeaways & Highlights");
       bodyLines.push("- ");
       bodyLines.push("");
-      bodyLines.push("## Memorable Quotes");
+      bodyLines.push("# Memorable Quotes");
       bodyLines.push("> ");
       bodyLines.push("");
-      bodyLines.push("## Personal Notes & Thoughts");
+      bodyLines.push("# Personal Notes & Thoughts");
       bodyLines.push("");
     }
     return [...frontmatterLines, ...bodyLines].join("\n");
@@ -1101,7 +1108,7 @@ var NoteService = class {
     }
     const highlightsMd = this.formatHighlightsMarkdown(highlights);
     const currentContent = await this.app.vault.read(file);
-    const sectionRegex = /## Highlights & Annotations[\s\S]*?(?=\n## |$)/;
+    const sectionRegex = /#{1,6}\s+Highlights & Annotations[\s\S]*?(?=\n#{1,6}\s+|$)/;
     let newContent;
     if (sectionRegex.test(currentContent)) {
       newContent = currentContent.replace(sectionRegex, highlightsMd.trim());
