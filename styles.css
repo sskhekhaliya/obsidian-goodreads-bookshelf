@@ -689,6 +689,7 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -919,4 +920,3 @@
   font-size: 0.8rem;
   color: var(--text-muted);
 }
-
