@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => GoodreadsBookshelfPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/types.ts
 var DEFAULT_PROPERTIES = [
@@ -31,6 +31,7 @@ var DEFAULT_PROPERTIES = [
   { id: "prop-author", key: "author", field: "author", enabled: true },
   { id: "prop-goodreads_id", key: "goodreads_id", field: "goodreads_id", enabled: true },
   { id: "prop-shelf", key: "shelf", field: "shelf", enabled: true },
+  { id: "prop-field", key: "field", field: "field", enabled: true },
   { id: "prop-isbn", key: "isbn", field: "isbn", enabled: true },
   { id: "prop-rating", key: "my_rating", field: "rating", enabled: true },
   { id: "prop-average_rating", key: "average_rating", field: "average_rating", enabled: true },
@@ -59,11 +60,26 @@ var DEFAULT_SETTINGS = {
   includeHighlights: true,
   goodreadsCookie: "",
   overwriteExisting: false,
-  properties: DEFAULT_PROPERTIES
+  properties: DEFAULT_PROPERTIES,
+  storageMode: "single",
+  includeBookDocuments: true,
+  createHighlightsFile: true,
+  createThoughtsFile: true,
+  createVocabularyFile: true,
+  vocabularyHeadingLevel: "h3",
+  customThoughtsTemplate: "",
+  customVocabularyTemplate: "",
+  customHighlightsTemplate: "",
+  highlightsTemplatePath: "",
+  thoughtsTemplatePath: "",
+  vocabularyTemplatePath: "",
+  enableSnippetTriggers: true,
+  highlightSnippetTrigger: "/highlight",
+  vocabularySnippetTrigger: "/vocab"
 };
 
 // src/settings.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/folder-suggest.ts
 var import_obsidian = require("obsidian");
@@ -98,8 +114,33 @@ var FolderSuggest = class extends import_obsidian.AbstractInputSuggest {
   }
 };
 
-// src/goodreads-service.ts
+// src/file-suggest.ts
 var import_obsidian2 = require("obsidian");
+var FileSuggest = class extends import_obsidian2.AbstractInputSuggest {
+  constructor(app, textInputEl) {
+    super(app, textInputEl);
+    this.inputEl = textInputEl;
+  }
+  getSuggestions(query) {
+    const lowerQuery = query.toLowerCase().trim();
+    const markdownFiles = this.app.vault.getMarkdownFiles();
+    if (!lowerQuery) {
+      return markdownFiles.slice(0, 30);
+    }
+    return markdownFiles.filter((file) => file.path.toLowerCase().includes(lowerQuery)).slice(0, 30);
+  }
+  renderSuggestion(file, el) {
+    el.createEl("div", { text: file.path });
+  }
+  selectSuggestion(file) {
+    this.setValue(file.path);
+    this.inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    this.close();
+  }
+};
+
+// src/goodreads-service.ts
+var import_obsidian3 = require("obsidian");
 var GoodreadsService = class {
   /**
    * Cleans and extracts user ID from direct number or full Goodreads profile/shelf URL
@@ -140,7 +181,7 @@ var GoodreadsService = class {
       }
       let responseText = "";
       try {
-        const response = await (0, import_obsidian2.requestUrl)({
+        const response = await (0, import_obsidian3.requestUrl)({
           url,
           method: "GET",
           headers: {
@@ -185,38 +226,56 @@ var GoodreadsService = class {
    */
   static async fetchBookHighlights(userId, bookId, cookie) {
     const cleanUserId = this.extractUserId(userId);
-    if (!cleanUserId || !bookId) return [];
-    const url = `https://www.goodreads.com/notes/${encodeURIComponent(bookId)}/${encodeURIComponent(cleanUserId)}`;
+    const cleanBookId = String(bookId).trim().match(/^([0-9]+)/)?.[1] || String(bookId).trim();
+    if (!cleanUserId || !cleanBookId) return [];
+    const url = `https://www.goodreads.com/notes/${encodeURIComponent(cleanBookId)}/${encodeURIComponent(cleanUserId)}`;
     const headers = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ObsidianGoodreadsBookshelf/1.0",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9"
     };
     if (cookie && cookie.trim()) {
-      const cleanCookie = cookie.trim().startsWith("_session_id2=") ? cookie.trim() : `_session_id2=${cookie.trim()}`;
+      let cleanCookie = cookie.trim();
+      if (!cleanCookie.includes("=")) {
+        cleanCookie = `_session_id2=${cleanCookie}`;
+      }
       headers["Cookie"] = cleanCookie;
     }
     try {
-      const response = await (0, import_obsidian2.requestUrl)({
+      const response = await (0, import_obsidian3.requestUrl)({
         url,
         method: "GET",
         headers
       });
       if (response.status !== 200) {
+        console.warn(
+          `[Goodreads Bookshelf] Highlights request returned status ${response.status} for ${url}`
+        );
         return [];
       }
       const parser = new DOMParser();
       const doc = parser.parseFromString(response.text, "text/html");
-      const noteEls = Array.from(doc.querySelectorAll(".js-readingNote"));
+      const noteEls = Array.from(
+        doc.querySelectorAll(
+          ".js-readingNote, .readingNote, [data-reading-note-id], .readingNotes__note, .noteHighlightContainer, .readingNote__container"
+        )
+      );
       const highlights = [];
       for (const el of noteEls) {
-        const id = el.getAttribute("data-reading-note-id") || "";
+        const id = el.getAttribute("data-reading-note-id") || el.getAttribute("id") || "";
         const isSpoiler = el.getAttribute("data-is-spoiler") === "true";
-        const locEl = el.querySelector(".noteHighlightContainer__location a") || el.querySelector(".noteHighlightContainer__location");
+        const locEl = el.querySelector(".noteHighlightContainer__location a") || el.querySelector(".noteHighlightContainer__location") || el.querySelector(".readingNote__location") || el.querySelector(".readingNotes__location") || el.querySelector(".noteLocation") || el.querySelector(".location");
         const location = locEl?.textContent?.trim() || "";
-        const textEl = el.querySelector(".noteHighlightTextContainer__highlightText span") || el.querySelector(".noteHighlightTextContainer__highlightText");
-        const text = this.cleanText(textEl?.textContent || "");
-        const userNoteEl = el.querySelector(".noteHighlightTextContainer__noteContainer") || el.querySelector(".noteText");
-        const note = this.cleanText(userNoteEl?.textContent || "");
+        const textEl = el.querySelector(".noteHighlightTextContainer__highlightText span") || el.querySelector(".noteHighlightTextContainer__highlightText") || el.querySelector(".readingNote__highlightText") || el.querySelector(".readingNotes__highlight") || el.querySelector(".highlightText") || el.querySelector(".js-highlightText") || el.querySelector(".highlight") || el.querySelector("blockquote");
+        let text = this.cleanText(textEl?.textContent || "");
+        if (!text && el.getAttribute("data-highlight")) {
+          text = this.cleanText(el.getAttribute("data-highlight") || "");
+        }
+        const userNoteEl = el.querySelector(".noteHighlightTextContainer__noteContainer span") || el.querySelector(".noteHighlightTextContainer__noteContainer") || el.querySelector(".readingNote__userNote") || el.querySelector(".readingNotes__userNote") || el.querySelector(".noteText") || el.querySelector(".userNote") || el.querySelector(".annotation") || el.querySelector(".note");
+        let note = this.cleanText(userNoteEl?.textContent || "");
+        if (!note && el.getAttribute("data-note")) {
+          note = this.cleanText(el.getAttribute("data-note") || "");
+        }
         if (text || note) {
           highlights.push({
             id,
@@ -227,8 +286,43 @@ var GoodreadsService = class {
           });
         }
       }
+      if (highlights.length === 0) {
+        const reactContainers = Array.from(
+          doc.querySelectorAll("[data-react-props]")
+        );
+        for (const container of reactContainers) {
+          const rawProps = container.getAttribute("data-react-props");
+          if (rawProps && (rawProps.includes("highlight") || rawProps.includes("readingNote") || rawProps.includes("notes"))) {
+            try {
+              const parsed = JSON.parse(rawProps);
+              const items = parsed.notes || parsed.readingNotes || parsed.highlights || [];
+              if (Array.isArray(items)) {
+                for (const item of items) {
+                  const itemText = item.text || item.highlight || item.body || "";
+                  const itemNote = item.note || item.comment || "";
+                  const itemLoc = item.location || item.page || "";
+                  if (itemText || itemNote) {
+                    highlights.push({
+                      id: String(item.id || ""),
+                      location: String(itemLoc),
+                      text: this.cleanText(itemText),
+                      note: this.cleanText(itemNote),
+                      isSpoiler: !!item.isSpoiler
+                    });
+                  }
+                }
+              }
+            } catch {
+            }
+          }
+        }
+      }
       return highlights;
-    } catch {
+    } catch (err) {
+      console.warn(
+        `[Goodreads Bookshelf] Failed to fetch highlights from ${url}:`,
+        err
+      );
       return [];
     }
   }
@@ -254,7 +348,20 @@ var GoodreadsService = class {
         if (byQuery !== void 0 && byQuery !== null) return byQuery.trim();
         return "";
       };
-      const bookId = getTagText("book_id") || item.querySelector("book")?.getAttribute("id") || getTagText("guid") || "";
+      let bookId = getTagText("book_id") || item.querySelector("book > id")?.textContent?.trim() || item.querySelector("book")?.getAttribute("id") || "";
+      if (!bookId || !/^[0-9]+$/.test(bookId)) {
+        const link2 = getTagText("link") || "";
+        const linkMatch = link2.match(/\/book\/show\/([0-9]+)/);
+        if (linkMatch && linkMatch[1]) {
+          bookId = linkMatch[1];
+        } else {
+          const guid2 = getTagText("guid") || "";
+          const guidMatch = guid2.match(/([0-9]+)$/);
+          if (guidMatch && guidMatch[1]) {
+            bookId = guidMatch[1];
+          }
+        }
+      }
       const title = this.cleanText(
         getTagText("title") || "Untitled Book"
       );
@@ -385,7 +492,7 @@ var GoodreadsService = class {
 };
 
 // src/settings.ts
-var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
+var GoodreadsSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -407,7 +514,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         cls: `gr-settings-tab-btn ${this.activeTab === tab.id ? "is-active" : ""}`
       });
       const iconSpan = btn.createSpan({ cls: "gr-settings-tab-icon" });
-      (0, import_obsidian3.setIcon)(iconSpan, tab.icon);
+      (0, import_obsidian4.setIcon)(iconSpan, tab.icon);
       btn.createSpan({ text: tab.label });
       btn.addEventListener("click", () => {
         this.activeTab = tab.id;
@@ -433,7 +540,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
   // ================= GENERAL TAB =================
   renderGeneralTab(container) {
     container.createEl("h3", { text: "Goodreads Profile" });
-    new import_obsidian3.Setting(container).setName("Goodreads User ID or Profile URL").setDesc(
+    new import_obsidian4.Setting(container).setName("Goodreads User ID or Profile URL").setDesc(
       "Enter your numeric Goodreads User ID or paste your full profile URL (e.g. https://www.goodreads.com/user/show/12345678-john-doe). Your profile must be public."
     ).addText(
       (text) => text.setPlaceholder("e.g. 12345678 or profile URL").setValue(this.plugin.settings.userId).onChange(async (value) => {
@@ -442,23 +549,23 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Verify Goodreads Connection").setDesc("Test whether your Goodreads bookshelf RSS feed is accessible.").addButton(
+    new import_obsidian4.Setting(container).setName("Verify Goodreads Connection").setDesc("Test whether your Goodreads bookshelf RSS feed is accessible.").addButton(
       (btn) => btn.setButtonText("Test Connection").setCta().onClick(async () => {
         const userId = this.plugin.settings.userId.trim();
         if (!userId) {
-          new import_obsidian3.Notice("Please enter a Goodreads User ID first.");
+          new import_obsidian4.Notice("Please enter a Goodreads User ID first.");
           return;
         }
         btn.setButtonText("Testing...");
         btn.setDisabled(true);
         try {
           const res = await GoodreadsService.fetchShelf(userId, "all", 10);
-          new import_obsidian3.Notice(
+          new import_obsidian4.Notice(
             `Success! Connected to "${res.shelfTitle}". Found books!`,
             5e3
           );
         } catch (err) {
-          new import_obsidian3.Notice(`Connection failed: ${err.message}`, 6e3);
+          new import_obsidian4.Notice(`Connection failed: ${err.message}`, 6e3);
         } finally {
           btn.setButtonText("Test Connection");
           btn.setDisabled(false);
@@ -466,7 +573,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
       })
     );
     container.createEl("h3", { text: "Note Storage & Naming" });
-    new import_obsidian3.Setting(container).setName("Save Folder").setDesc(
+    new import_obsidian4.Setting(container).setName("Save Folder").setDesc(
       "Vault folder where book notes will be saved. Will be created automatically if missing."
     ).addText((text) => {
       text.setPlaceholder("e.g. Books or Reading/Goodreads").setValue(this.plugin.settings.folder).onChange(async (val) => {
@@ -475,7 +582,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
       });
       new FolderSuggest(this.app, text.inputEl);
     });
-    new import_obsidian3.Setting(container).setName("Note Title Format").setDesc("Choose how note file names should be constructed.").addDropdown(
+    new import_obsidian4.Setting(container).setName("Note Title Format").setDesc("Choose how note file names should be constructed.").addDropdown(
       (dd) => dd.addOption("title", "Book Title (e.g. Dune.md)").addOption(
         "title-author",
         "Title - Author (e.g. Dune - Frank Herbert.md)"
@@ -487,30 +594,158 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Default Tag").setDesc("Base tag added to the frontmatter tags list (without #).").addText(
-      (text) => text.setPlaceholder("e.g. book").setValue(this.plugin.settings.tagPrefix).onChange(async (val) => {
+    new import_obsidian4.Setting(container).setName("Default Tags").setDesc(
+      "Tags added to the frontmatter tags list (comma-separated, without #). Supports dynamic property variables like {{field}}, {{shelf}}, {{author}}, etc."
+    ).addText(
+      (text) => text.setPlaceholder("e.g. book, {{field}}").setValue(this.plugin.settings.tagPrefix).onChange(async (val) => {
         this.plugin.settings.tagPrefix = val.trim();
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian4.Setting(container).setName("Note Storage Structure").setDesc(
+      "Choose whether each book is saved as a single markdown file or as an organized folder containing modular sub-notes."
+    ).addDropdown(
+      (dd) => dd.addOption("single", "Single File (e.g. Books/Dune.md)").addOption(
+        "folder",
+        "Folder per Book (e.g. Books/Dune/Dune.md + sub-notes)"
+      ).setValue(this.plugin.settings.storageMode).onChange(async (val) => {
+        this.plugin.settings.storageMode = val;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (this.plugin.settings.storageMode === "folder") {
+      new import_obsidian4.Setting(container).setName("Generate Highlights & Notes File").setDesc(
+        "Generates a dedicated Highlights & Notes.md file inside the book folder."
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.createHighlightsFile).onChange(async (val) => {
+          this.plugin.settings.createHighlightsFile = val;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Generate My Thoughts File").setDesc(
+        "Generates a dedicated My Thoughts.md file for personal interpretations, insights, and reviews."
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.createThoughtsFile).onChange(async (val) => {
+          this.plugin.settings.createThoughtsFile = val;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Generate Vocabulary File").setDesc(
+        "Generates a dedicated Vocabulary.md file formatted for vocabulary tracking and flashcards."
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.createVocabularyFile).onChange(async (val) => {
+          this.plugin.settings.createVocabularyFile = val;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Include 'Book Documents' Section in Main Note").setDesc(
+        "Includes links to sub-documents (Highlights, Thoughts, Vocabulary) under a '## \u{1F4C1} Book Documents' section in the main book note."
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.includeBookDocuments ?? true).onChange(async (val) => {
+          this.plugin.settings.includeBookDocuments = val;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Vocabulary Heading Level").setDesc(
+        "Markdown heading level used for each word entry in Vocabulary.md."
+      ).addDropdown(
+        (dd) => dd.addOption("h1", "H1 (#)").addOption("h2", "H2 (##)").addOption("h3", "H3 (###) \u2014 Default").addOption("h4", "H4 (####)").setValue(this.plugin.settings.vocabularyHeadingLevel || "h3").onChange(async (val) => {
+          this.plugin.settings.vocabularyHeadingLevel = val;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Highlights & Notes Template File (Vault)").setDesc(
+        "Choose a markdown template file from your vault for Highlights & Notes.md. Supports {{highlight}}, {{location}}, {{note}}, {{title}}, {{author}}, and {{book_link}}."
+      ).addText((text) => {
+        text.setPlaceholder("e.g. Templates/Highlights.md").setValue(this.plugin.settings.highlightsTemplatePath || "").onChange(async (val) => {
+          this.plugin.settings.highlightsTemplatePath = val.trim();
+          await this.plugin.saveSettings();
+        });
+        new FileSuggest(this.app, text.inputEl);
+      });
+      new import_obsidian4.Setting(container).setName("My Thoughts Template File (Vault)").setDesc(
+        "Choose a markdown template file from your vault for My Thoughts.md. Supports {{title}}, {{author}}, and {{book_link}}."
+      ).addText((text) => {
+        text.setPlaceholder("e.g. Templates/Thoughts.md").setValue(this.plugin.settings.thoughtsTemplatePath || "").onChange(async (val) => {
+          this.plugin.settings.thoughtsTemplatePath = val.trim();
+          await this.plugin.saveSettings();
+        });
+        new FileSuggest(this.app, text.inputEl);
+      });
+      new import_obsidian4.Setting(container).setName("Vocabulary Template File (Vault)").setDesc(
+        "Choose a markdown template file from your vault for Vocabulary.md. Supports {{title}}, {{author}}, {{book_link}}, and {{h}}."
+      ).addText((text) => {
+        text.setPlaceholder("e.g. Templates/Vocabulary.md").setValue(this.plugin.settings.vocabularyTemplatePath || "").onChange(async (val) => {
+          this.plugin.settings.vocabularyTemplatePath = val.trim();
+          await this.plugin.saveSettings();
+        });
+        new FileSuggest(this.app, text.inputEl);
+      });
+      new import_obsidian4.Setting(container).setName("Custom 'My Thoughts' Template (Inline Fallback)").setDesc(
+        "Inline template for My Thoughts.md if no vault file is selected above. Supports {{title}}, {{author}}, and {{book_link}}."
+      ).addTextArea((ta) => {
+        ta.setPlaceholder("Leave empty to use built-in default template").setValue(this.plugin.settings.customThoughtsTemplate || "").onChange(async (val) => {
+          this.plugin.settings.customThoughtsTemplate = val;
+          await this.plugin.saveSettings();
+        });
+        ta.inputEl.rows = 4;
+        ta.inputEl.cols = 40;
+      });
+      new import_obsidian4.Setting(container).setName("Custom 'Vocabulary' Template (Inline Fallback)").setDesc(
+        "Inline template for Vocabulary.md if no vault file is selected above. Supports {{title}}, {{author}}, {{book_link}}, and {{h}}."
+      ).addTextArea((ta) => {
+        ta.setPlaceholder("Leave empty to use built-in default template").setValue(this.plugin.settings.customVocabularyTemplate || "").onChange(async (val) => {
+          this.plugin.settings.customVocabularyTemplate = val;
+          await this.plugin.saveSettings();
+        });
+        ta.inputEl.rows = 4;
+        ta.inputEl.cols = 40;
+      });
+    }
     container.createEl("h3", { text: "Editor Behavior" });
-    new import_obsidian3.Setting(container).setName("Open Note After Creation").setDesc("Automatically open the book note in editor after creation.").addToggle(
+    new import_obsidian4.Setting(container).setName("Open Note After Creation").setDesc("Automatically open the book note in editor after creation.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.openNoteAfterCreation).onChange(async (val) => {
         this.plugin.settings.openNoteAfterCreation = val;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Open Location").setDesc("Where to open newly created or selected book notes.").addDropdown(
+    new import_obsidian4.Setting(container).setName("Open Location").setDesc("Where to open newly created or selected book notes.").addDropdown(
       (dd) => dd.addOption("new-tab", "New Tab").addOption("active", "Active Tab").addOption("split", "Split Pane (Right)").setValue(this.plugin.settings.openLocation).onChange(async (val) => {
         this.plugin.settings.openLocation = val;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Overwrite Existing Notes").setDesc(
+    new import_obsidian4.Setting(container).setName("Overwrite Existing Notes").setDesc(
       "If disabled (recommended), clicking an already saved book will simply open the existing note. If enabled, it will overwrite the note with freshly synced Goodreads data."
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.overwriteExisting).onChange(async (val) => {
         this.plugin.settings.overwriteExisting = val;
+        await this.plugin.saveSettings();
+      })
+    );
+    container.createEl("h3", { text: "Quick Insert & Snippet Triggers" });
+    new import_obsidian4.Setting(container).setName("Enable Inline Snippet Triggers").setDesc(
+      "Automatically expand trigger keywords into templates while typing in the editor (e.g. typing /highlight or /vocab)."
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.enableSnippetTriggers).onChange(async (val) => {
+        this.plugin.settings.enableSnippetTriggers = val;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian4.Setting(container).setName("Highlight Snippet Trigger").setDesc(
+      "Keyword trigger that automatically expands into a highlight template block."
+    ).addText(
+      (text) => text.setPlaceholder("/highlight").setValue(this.plugin.settings.highlightSnippetTrigger).onChange(async (val) => {
+        this.plugin.settings.highlightSnippetTrigger = val.trim() || "/highlight";
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian4.Setting(container).setName("Vocabulary Snippet Trigger").setDesc(
+      "Keyword trigger that automatically expands into a vocabulary entry block."
+    ).addText(
+      (text) => text.setPlaceholder("/vocab").setValue(this.plugin.settings.vocabularySnippetTrigger).onChange(async (val) => {
+        this.plugin.settings.vocabularySnippetTrigger = val.trim() || "/vocab";
         await this.plugin.saveSettings();
       })
     );
@@ -533,6 +768,8 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
       author: "Author Name",
       goodreads_id: "Goodreads Book ID",
       shelf: "Reading Shelf (read, currently-reading, to-read)",
+      field: "Book Genre / Shelves",
+      genres: "Book Genre / Shelves",
       isbn: "ISBN",
       rating: "My Rating (1-5)",
       rating_stars: "My Rating Stars (\u2605\u2605\u2605\u2605\u2605)",
@@ -586,7 +823,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         cls: "gr-prop-del-btn",
         title: "Delete property"
       });
-      (0, import_obsidian3.setIcon)(delBtn, "trash-2");
+      (0, import_obsidian4.setIcon)(delBtn, "trash-2");
       delBtn.addEventListener("click", async () => {
         this.plugin.settings.properties.splice(index, 1);
         await this.plugin.saveSettings();
@@ -598,6 +835,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
     const addControls = addCard.createDiv({ cls: "gr-add-prop-controls" });
     const selectField = addControls.createEl("select", { cls: "gr-select" });
     const availableFields = [
+      { id: "field", label: "Book Genre / Shelves (field)" },
       { id: "shelf", label: "Reading Shelf (read, currently-reading, to-read)" },
       { id: "title", label: "Book Title" },
       { id: "author", label: "Author Name" },
@@ -620,11 +858,15 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
     }
     const newKeyInput = addControls.createEl("input", {
       type: "text",
-      placeholder: "Property key (e.g. my_shelf)",
-      value: "shelf"
+      placeholder: "Property key (e.g. field)",
+      value: "field"
     });
     selectField.addEventListener("change", () => {
-      newKeyInput.value = selectField.value === "rating" ? "my_rating" : selectField.value;
+      if (selectField.value === "rating") {
+        newKeyInput.value = "my_rating";
+      } else {
+        newKeyInput.value = selectField.value;
+      }
     });
     const addBtn = addControls.createEl("button", {
       text: "Add Property",
@@ -642,7 +884,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
       };
       this.plugin.settings.properties.push(newProp);
       await this.plugin.saveSettings();
-      new import_obsidian3.Notice(`Added property "${key}"`);
+      new import_obsidian4.Notice(`Added property "${key}"`);
       this.display();
     });
     const resetRow = container.createDiv({ cls: "gr-prop-reset-row" });
@@ -659,7 +901,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
           JSON.stringify(DEFAULT_PROPERTIES)
         );
         await this.plugin.saveSettings();
-        new import_obsidian3.Notice("Properties reset to defaults");
+        new import_obsidian4.Notice("Properties reset to defaults");
         this.display();
       }
     });
@@ -667,7 +909,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
   // ================= CONTENT TAB =================
   renderContentTab(container) {
     container.createEl("h3", { text: "Note Content & Sections" });
-    new import_obsidian3.Setting(container).setName("Embed Book Cover in Note Body").setDesc(
+    new import_obsidian4.Setting(container).setName("Embed Book Cover in Note Body").setDesc(
       "Embed the book cover image inside the note body. When disabled, the cover image URL will still be kept in your frontmatter properties."
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeCover).onChange(async (val) => {
@@ -675,13 +917,13 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Include Book Synopsis").setDesc("Include Goodreads book description in the generated note.").addToggle(
+    new import_obsidian4.Setting(container).setName("Include Book Synopsis").setDesc("Include Goodreads book description in the generated note.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeDescription).onChange(async (val) => {
         this.plugin.settings.includeDescription = val;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Include Personal Review & Rating").setDesc(
+    new import_obsidian4.Setting(container).setName("Include Personal Review & Rating").setDesc(
       "Include your personal Goodreads star rating and written review in the generated note."
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeReview).onChange(async (val) => {
@@ -689,7 +931,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Include Reading Note Sections").setDesc(
+    new import_obsidian4.Setting(container).setName("Include Reading Note Sections").setDesc(
       "Adds blank reflection headings for 'Key Takeaways', 'Memorable Quotes', and 'Personal Notes'. Recommended OFF if you prefer clean notes or already extract Kindle highlights."
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeReadingSections).onChange(async (val) => {
@@ -697,8 +939,18 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    if (this.plugin.settings.storageMode === "folder") {
+      new import_obsidian4.Setting(container).setName("Include 'Book Documents' Section").setDesc(
+        "Add a '## \u{1F4C1} Book Documents' section with links to sub-notes inside the main book note (Folder storage mode)."
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.includeBookDocuments ?? true).onChange(async (val) => {
+          this.plugin.settings.includeBookDocuments = val;
+          await this.plugin.saveSettings();
+        })
+      );
+    }
     container.createEl("h3", { text: "Kindle Notes & Highlights" });
-    new import_obsidian3.Setting(container).setName("Extract Kindle Notes & Highlights").setDesc(
+    new import_obsidian4.Setting(container).setName("Extract Kindle Notes & Highlights").setDesc(
       "Automatically extract your synced Kindle highlights, locations, and personal annotations from Goodreads."
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeHighlights).onChange(async (val) => {
@@ -706,7 +958,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Goodreads Session Cookie (Optional)").setDesc(
+    new import_obsidian4.Setting(container).setName("Goodreads Session Cookie (Optional)").setDesc(
       "By default, Goodreads marks Kindle highlights as private unless set to 'Visible'. If your highlights are private, paste your `_session_id2` cookie here to fetch them."
     ).addText((text) => {
       text.setPlaceholder("Optional: paste _session_id2 cookie").setValue(this.plugin.settings.goodreadsCookie).onChange(async (val) => {
@@ -719,13 +971,13 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
   // ================= SHELVES & SYNC TAB =================
   renderShelvesTab(container) {
     container.createEl("h3", { text: "Shelves & Syncing" });
-    new import_obsidian3.Setting(container).setName("Default Shelf").setDesc("Which shelf to load initially when opening the Bookshelf view.").addDropdown(
+    new import_obsidian4.Setting(container).setName("Default Shelf").setDesc("Which shelf to load initially when opening the Bookshelf view.").addDropdown(
       (dd) => dd.addOption("all", "All Books").addOption("currently-reading", "Currently Reading").addOption("read", "Read").addOption("to-read", "Want to Read").setValue(this.plugin.settings.defaultShelf).onChange(async (val) => {
         this.plugin.settings.defaultShelf = val;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Custom Shelves").setDesc(
+    new import_obsidian4.Setting(container).setName("Custom Shelves").setDesc(
       "Additional Goodreads shelf names to display as tabs (comma-separated, e.g. favorites, sci-fi, biography)."
     ).addText(
       (text) => text.setPlaceholder("e.g. favorites, non-fiction").setValue(this.plugin.settings.customShelves.join(", ")).onChange(async (val) => {
@@ -733,7 +985,7 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(container).setName("Maximum Books to Fetch").setDesc("Limit the number of books retrieved per shelf.").addDropdown(
+    new import_obsidian4.Setting(container).setName("Maximum Books to Fetch").setDesc("Limit the number of books retrieved per shelf.").addDropdown(
       (dd) => dd.addOption("50", "50 books").addOption("100", "100 books").addOption("200", "200 books").addOption("300", "300 books").setValue(String(this.plugin.settings.maxItems)).onChange(async (val) => {
         this.plugin.settings.maxItems = parseInt(val, 10) || 100;
         await this.plugin.saveSettings();
@@ -743,10 +995,10 @@ var GoodreadsSettingTab = class extends import_obsidian3.PluginSettingTab {
 };
 
 // src/bookshelf-view.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/note-service.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var NoteService = class {
   constructor(app, settings) {
     this.app = app;
@@ -790,9 +1042,9 @@ var NoteService = class {
     return main || fullTitle.trim();
   }
   /**
-   * Generates target note file path based on settings
+   * Returns base book folder or note name (sanitized)
    */
-  getNoteFilePath(book) {
+  getBookFolderName(book) {
     const mainTitle = this.getMainTitle(book.title);
     let baseName = mainTitle;
     if (this.settings.noteTitleFormat === "title-author") {
@@ -800,21 +1052,51 @@ var NoteService = class {
     } else if (this.settings.noteTitleFormat === "author-title") {
       baseName = `${book.author} - ${mainTitle}`;
     }
-    const safeName = this.sanitizeFileName(baseName) || `Book-${book.bookId}`;
+    return this.sanitizeFileName(baseName) || `Book-${book.bookId}`;
+  }
+  /**
+   * Returns directory path for book when folder mode is used
+   */
+  getBookFolderPath(book) {
+    const folderName = this.getBookFolderName(book);
+    const parentFolder = this.settings.folder.trim();
+    if (!parentFolder) {
+      return folderName;
+    }
+    return (0, import_obsidian5.normalizePath)(`${parentFolder}/${folderName}`);
+  }
+  /**
+   * Generates target note file path based on settings (single note vs folder per book)
+   */
+  getNoteFilePath(book) {
+    const safeName = this.getBookFolderName(book);
     const folder = this.settings.folder.trim();
+    if (this.settings.storageMode === "folder") {
+      if (!folder) {
+        return (0, import_obsidian5.normalizePath)(`${safeName}/${safeName}.md`);
+      }
+      return (0, import_obsidian5.normalizePath)(`${folder}/${safeName}/${safeName}.md`);
+    }
     if (!folder) {
       return `${safeName}.md`;
     }
-    return (0, import_obsidian4.normalizePath)(`${folder}/${safeName}.md`);
+    return (0, import_obsidian5.normalizePath)(`${folder}/${safeName}.md`);
   }
   /**
-   * Checks if a note for this book already exists in vault
+   * Checks if a note for this book already exists in vault (supports single and folder mode)
    */
   findExistingBookNote(book) {
     const expectedPath = this.getNoteFilePath(book);
     const fileByPath = this.app.vault.getAbstractFileByPath(expectedPath);
-    if (fileByPath instanceof import_obsidian4.TFile) {
+    if (fileByPath instanceof import_obsidian5.TFile) {
       return fileByPath;
+    }
+    const safeName = this.getBookFolderName(book);
+    const folder = this.settings.folder.trim();
+    const altPath = this.settings.storageMode === "folder" ? folder ? (0, import_obsidian5.normalizePath)(`${folder}/${safeName}.md`) : `${safeName}.md` : folder ? (0, import_obsidian5.normalizePath)(`${folder}/${safeName}/${safeName}.md`) : (0, import_obsidian5.normalizePath)(`${safeName}/${safeName}.md`);
+    const altFile = this.app.vault.getAbstractFileByPath(altPath);
+    if (altFile instanceof import_obsidian5.TFile) {
+      return altFile;
     }
     const targetFolder = this.settings.folder.trim();
     const files = this.app.vault.getMarkdownFiles();
@@ -822,6 +1104,7 @@ var NoteService = class {
       this.getMainTitle(book.title)
     ).toLowerCase();
     const cleanFullTitle = this.sanitizeFileName(book.title).toLowerCase();
+    const cleanSafeName = safeName.toLowerCase();
     for (const file of files) {
       if (targetFolder && !file.path.startsWith(targetFolder)) {
         continue;
@@ -834,53 +1117,411 @@ var NoteService = class {
         }
       }
       const fileBase = file.basename.toLowerCase();
-      if (fileBase === cleanMainTitle || fileBase === cleanFullTitle) {
+      if (fileBase === cleanMainTitle || fileBase === cleanFullTitle || fileBase === cleanSafeName) {
         return file;
       }
     }
     return null;
   }
   /**
+   * Helper to resolve heading markdown prefix from HeadingLevel
+   */
+  getHeadingPrefix(level) {
+    switch (level) {
+      case "h1":
+        return "#";
+      case "h2":
+        return "##";
+      case "h4":
+        return "####";
+      case "h3":
+      default:
+        return "###";
+    }
+  }
+  /**
    * Formats a list of highlights into markdown
    */
   formatHighlightsMarkdown(highlights) {
     if (highlights.length === 0) return "";
-    const lines = ["# Highlights & Annotations", ""];
+    const entries = [];
     for (const h of highlights) {
+      const lines = [];
       if (h.text) {
-        const quoteLines = h.text.split("\n");
+        const quoteLines = h.text.replace(/\r\n/g, "\n").split("\n");
         for (const line of quoteLines) {
           lines.push(`> ${line}`);
         }
-        if (h.location) {
-          lines.push(`> \u2014 *Location: ${h.location}*`);
-        }
+      } else {
+        lines.push("> ");
       }
-      if (h.note) {
-        lines.push(`> **Note:** ${h.note}`);
+      if (h.location) {
+        lines.push(`> \u2014 *Location: ${h.location}*`);
+      } else {
+        lines.push(`> \u2014 *Location: *`);
       }
       lines.push("");
+      lines.push("**Note:** ");
+      if (h.note) {
+        lines.push(h.note);
+        lines.push("");
+      } else {
+        lines.push("");
+        lines.push("");
+      }
+      lines.push("---");
+      entries.push(lines.join("\n"));
     }
-    return lines.join("\n");
+    return entries.join("\n\n");
+  }
+  /**
+   * Reads markdown template file from vault if path is set and valid
+   */
+  async readVaultFile(filePath) {
+    if (!filePath || !filePath.trim()) return null;
+    const cleanPath = (0, import_obsidian5.normalizePath)(filePath.trim());
+    const file = this.app.vault.getAbstractFileByPath(cleanPath);
+    if (file instanceof import_obsidian5.TFile) {
+      return await this.app.vault.read(file);
+    }
+    return null;
+  }
+  /**
+   * Returns today's date in YYYY-MM-DD
+   */
+  getTodayDate() {
+    const d = /* @__PURE__ */ new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  /**
+   * Generates a single blank highlight entry snippet (for shortcuts and manual entry)
+   */
+  getSingleHighlightSnippet() {
+    return [
+      "> ",
+      "> \u2014 *Location: *",
+      "",
+      "**Note:** ",
+      "",
+      "",
+      "---"
+    ].join("\n");
+  }
+  /**
+   * Generates a single blank vocabulary entry snippet (for shortcuts and manual entry)
+   */
+  getSingleVocabularySnippet() {
+    const h = this.getHeadingPrefix(
+      this.settings.vocabularyHeadingLevel || "h3"
+    );
+    return [
+      `${h} Word`,
+      "- **Definition**: ",
+      '- **Book Context**: ""',
+      "- **My Examples**:",
+      "  1. "
+    ].join("\n");
+  }
+  /**
+   * Generates content for standalone Highlights & Notes.md file
+   */
+  async generateHighlightsNoteContent(book, highlights = []) {
+    const bookFolderPath = this.getBookFolderPath(book);
+    const mainTitle = this.getMainTitle(book.title);
+    const safeName = this.getBookFolderName(book);
+    const mainLink = `${bookFolderPath}/${safeName}`;
+    const today = this.getTodayDate();
+    let rawTemplate = null;
+    if (this.settings.highlightsTemplatePath) {
+      rawTemplate = await this.readVaultFile(
+        this.settings.highlightsTemplatePath
+      );
+    }
+    if (!rawTemplate && this.settings.customHighlightsTemplate && this.settings.customHighlightsTemplate.trim()) {
+      rawTemplate = this.settings.customHighlightsTemplate;
+    }
+    if (!rawTemplate) {
+      const frontmatter = [
+        "---",
+        `book: "[[${mainLink}|${mainTitle}]]"`,
+        "type: highlights",
+        "tags:",
+        "  - book/highlights",
+        "---",
+        ""
+      ].join("\n");
+      let body;
+      if (highlights.length > 0) {
+        body = this.formatHighlightsMarkdown(highlights);
+      } else {
+        body = this.getSingleHighlightSnippet();
+      }
+      return frontmatter + body + "\n";
+    }
+    let processed = rawTemplate.replace(/\{\{title\}\}/gi, mainTitle).replace(/\{\{author\}\}/gi, book.author).replace(/\{\{book_link\}\}/gi, `[[${mainLink}|${mainTitle}]]`).replace(/\{\{date\}\}/gi, today).replace(/\{\{shelf\}\}/gi, book.shelf || "read");
+    const singlePatternMatch = processed.match(/((?:^[ \t]*>[ \t]*.*(?:\r?\n|$))+[\s\S]*?---)/m) || processed.match(/((?:^[ \t]*>[ \t]*.*(?:\r?\n|$))+)/m);
+    const pattern = singlePatternMatch && singlePatternMatch[0].includes("{{highlight}}") ? singlePatternMatch[0].trim() : [
+      "> {{highlight}}",
+      "> \u2014 *Location: {{location}}*",
+      "",
+      "**Note:** ",
+      "{{note}}",
+      "",
+      "---"
+    ].join("\n");
+    const formatSingleHighlight = (h) => {
+      const quote = h?.text || "";
+      const loc = h?.location || "";
+      const note = h?.note || "";
+      return pattern.replace(/\{\{highlight\}\}/gi, quote).replace(/\{\{location\}\}/gi, loc).replace(/\{\{note\}\}/gi, note);
+    };
+    let renderedHighlights = "";
+    if (highlights.length > 0) {
+      renderedHighlights = highlights.map((h) => formatSingleHighlight(h)).join("\n\n");
+    } else {
+      renderedHighlights = formatSingleHighlight();
+    }
+    if (processed.includes("{{highlights}}")) {
+      processed = processed.replace(/\{\{highlights\}\}/gi, renderedHighlights);
+    } else if (singlePatternMatch && singlePatternMatch[0].includes("{{highlight}}")) {
+      processed = processed.replace(singlePatternMatch[0], renderedHighlights);
+    } else {
+      processed = processed.trimEnd() + "\n\n" + renderedHighlights;
+    }
+    return processed;
+  }
+  /**
+   * Generates content for standalone My Thoughts.md file
+   */
+  async generateMyThoughtsContent(book) {
+    const bookFolderPath = this.getBookFolderPath(book);
+    const mainTitle = this.getMainTitle(book.title);
+    const safeName = this.getBookFolderName(book);
+    const mainLink = `${bookFolderPath}/${safeName}`;
+    const today = this.getTodayDate();
+    let rawTemplate = null;
+    if (this.settings.thoughtsTemplatePath) {
+      rawTemplate = await this.readVaultFile(
+        this.settings.thoughtsTemplatePath
+      );
+    }
+    if (!rawTemplate && this.settings.customThoughtsTemplate && this.settings.customThoughtsTemplate.trim()) {
+      rawTemplate = this.settings.customThoughtsTemplate;
+    }
+    if (rawTemplate) {
+      return rawTemplate.replace(/\{\{title\}\}/gi, mainTitle).replace(/\{\{author\}\}/gi, book.author).replace(/\{\{book_link\}\}/gi, `[[${mainLink}|${mainTitle}]]`).replace(/\{\{date\}\}/gi, today).replace(/\{\{shelf\}\}/gi, book.shelf || "read");
+    }
+    return [
+      "---",
+      `book: "[[${mainLink}|${mainTitle}]]"`,
+      "type: thoughts",
+      "tags:",
+      "  - book/thoughts",
+      "---",
+      "## \u{1F4A1} Key Takeaways & Core Ideas",
+      "- ",
+      "",
+      "## \u{1F9E0} Personal Reflections & Interpretations",
+      "- ",
+      "",
+      "## \u2753 Questions & Insights",
+      "- ",
+      ""
+    ].join("\n");
+  }
+  /**
+   * Generates content for standalone Vocabulary.md file
+   */
+  async generateVocabularyContent(book) {
+    const bookFolderPath = this.getBookFolderPath(book);
+    const mainTitle = this.getMainTitle(book.title);
+    const safeName = this.getBookFolderName(book);
+    const mainLink = `${bookFolderPath}/${safeName}`;
+    const today = this.getTodayDate();
+    const h = this.getHeadingPrefix(
+      this.settings.vocabularyHeadingLevel || "h3"
+    );
+    let rawTemplate = null;
+    if (this.settings.vocabularyTemplatePath) {
+      rawTemplate = await this.readVaultFile(
+        this.settings.vocabularyTemplatePath
+      );
+    }
+    if (!rawTemplate && this.settings.customVocabularyTemplate && this.settings.customVocabularyTemplate.trim()) {
+      rawTemplate = this.settings.customVocabularyTemplate;
+    }
+    if (rawTemplate) {
+      return rawTemplate.replace(/\{\{title\}\}/gi, mainTitle).replace(/\{\{author\}\}/gi, book.author).replace(/\{\{book_link\}\}/gi, `[[${mainLink}|${mainTitle}]]`).replace(/\{\{date\}\}/gi, today).replace(/\{\{shelf\}\}/gi, book.shelf || "read").replace(/\{\{h\}\}/gi, h);
+    }
+    return [
+      "---",
+      `book: "[[${mainLink}|${mainTitle}]]"`,
+      "type: vocabulary",
+      "tags:",
+      "  - book/vocabulary",
+      "---",
+      "",
+      this.getSingleVocabularySnippet(),
+      ""
+    ].join("\n");
+  }
+  /**
+   * Extracts clean genres from book userShelves, filtering out status shelves
+   */
+  getBookGenres(book) {
+    const statusShelves = /* @__PURE__ */ new Set([
+      "read",
+      "currently-reading",
+      "currently reading",
+      "to-read",
+      "to read",
+      (book.shelf || "").toLowerCase().trim(),
+      (book.shelf || "").toLowerCase().replace(/[^a-z0-9_-]/g, "-")
+    ]);
+    const genres = [];
+    for (const rawShelf of book.userShelves || []) {
+      const trimmed = rawShelf.trim();
+      const normalized = trimmed.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+      if (!trimmed || !normalized) continue;
+      if (statusShelves.has(trimmed.toLowerCase()) || statusShelves.has(normalized)) {
+        continue;
+      }
+      if (!genres.some((g) => g.toLowerCase() === trimmed.toLowerCase())) {
+        genres.push(trimmed);
+      }
+    }
+    return genres;
+  }
+  /**
+   * Sanitizes a string into a valid Obsidian tag
+   */
+  sanitizeTag(tag) {
+    let clean = tag.trim().replace(/^#+/, "");
+    clean = clean.replace(/[\s\\]+/g, "-");
+    clean = clean.replace(/[^a-zA-Z0-9_\-\/]/g, "-");
+    clean = clean.replace(/-+/g, "-");
+    clean = clean.replace(/\/+/g, "/");
+    clean = clean.replace(/(^[-/]+|[-/]+$)/g, "");
+    return clean;
+  }
+  /**
+   * Resolves tags from settings, expanding dynamic properties like {{property_name}}
+   */
+  resolveTags(book) {
+    const rawSetting = (this.settings.tagPrefix || "").trim();
+    if (!rawSetting) return [];
+    const genres = this.getBookGenres(book);
+    const propertyValueMap = /* @__PURE__ */ new Map();
+    const setMapValue = (name, values) => {
+      const cleanKey = name.trim().toLowerCase();
+      if (!cleanKey) return;
+      propertyValueMap.set(cleanKey, values);
+    };
+    const getStandardFieldValues = (field) => {
+      switch (field.toLowerCase()) {
+        case "field":
+        case "genre":
+        case "genres":
+        case "shelves":
+          return genres;
+        case "shelf":
+        case "status":
+          return book.shelf ? [book.shelf] : [];
+        case "title":
+          return book.title ? [this.getMainTitle(book.title)] : [];
+        case "author":
+          return book.author ? [book.author] : [];
+        case "goodreads_id":
+        case "id":
+          return book.bookId ? [book.bookId] : [];
+        case "isbn":
+          return book.isbn ? [book.isbn] : [];
+        case "rating":
+        case "my_rating":
+          return book.userRating > 0 ? [String(book.userRating)] : [];
+        case "average_rating":
+          return book.averageRating > 0 ? [String(book.averageRating)] : [];
+        case "pages":
+          return book.pages ? [String(book.pages)] : [];
+        case "published":
+        case "year":
+          return book.publishedYear ? [book.publishedYear] : [];
+        case "date_added":
+          return book.userDateAdded ? [book.userDateAdded] : [];
+        case "date_read":
+          return book.userReadAt ? [book.userReadAt] : [];
+        default:
+          return [];
+      }
+    };
+    const properties = this.settings.properties || DEFAULT_PROPERTIES;
+    for (const prop of properties) {
+      if (!prop.key) continue;
+      let values = [];
+      if (prop.field === "custom") {
+        values = prop.customValue ? [prop.customValue] : [];
+      } else {
+        values = getStandardFieldValues(prop.field);
+      }
+      setMapValue(prop.key, values);
+      setMapValue(prop.field, values);
+    }
+    setMapValue("field", genres);
+    setMapValue("genre", genres);
+    setMapValue("genres", genres);
+    setMapValue("shelf", book.shelf ? [book.shelf] : []);
+    setMapValue("status", book.shelf ? [book.shelf] : []);
+    setMapValue("title", book.title ? [this.getMainTitle(book.title)] : []);
+    setMapValue("author", book.author ? [book.author] : []);
+    setMapValue("published", book.publishedYear ? [book.publishedYear] : []);
+    const rawTokens = rawSetting.split(/[,\n]/).map((t) => t.trim()).filter((t) => t.length > 0);
+    const tags = [];
+    for (const token of rawTokens) {
+      const placeholderRegex = /\{\{([^}]+)\}\}/g;
+      const matches = Array.from(token.matchAll(placeholderRegex));
+      if (matches.length === 0) {
+        const cleanTag = this.sanitizeTag(token);
+        if (cleanTag && !tags.some((t) => t.toLowerCase() === cleanTag.toLowerCase())) {
+          tags.push(cleanTag);
+        }
+      } else {
+        let expandedList = [token];
+        for (const match of matches) {
+          const rawMatch = match[0];
+          const propName = match[1].trim().toLowerCase();
+          const values = propertyValueMap.get(propName) || [];
+          if (values.length === 0) {
+            expandedList = [];
+            break;
+          }
+          const nextExpanded = [];
+          for (const current of expandedList) {
+            for (const val of values) {
+              nextExpanded.push(current.replace(rawMatch, val));
+            }
+          }
+          expandedList = nextExpanded;
+        }
+        for (const exp of expandedList) {
+          const cleanTag = this.sanitizeTag(exp);
+          if (cleanTag && !tags.some((t) => t.toLowerCase() === cleanTag.toLowerCase())) {
+            tags.push(cleanTag);
+          }
+        }
+      }
+    }
+    return tags;
   }
   /**
    * Generates formatted Markdown content for book note
    */
   generateNoteContent(book, highlights = []) {
     const starString = this.getRatingStars(book.userRating);
-    const tags = [];
-    if (this.settings.tagPrefix) {
-      tags.push(this.settings.tagPrefix.replace(/^#/, ""));
-    }
-    if (book.shelf) {
-      tags.push(book.shelf.toLowerCase().replace(/[^a-z0-9_-]/g, "-"));
-    }
-    for (const s of book.userShelves) {
-      const cleanTag = s.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
-      if (cleanTag && !tags.includes(cleanTag)) {
-        tags.push(cleanTag);
-      }
-    }
+    const genres = this.getBookGenres(book);
+    const tags = this.resolveTags(book);
     const properties = this.settings.properties || DEFAULT_PROPERTIES;
     const frontmatterLines = ["---"];
     for (const prop of properties) {
@@ -898,6 +1539,16 @@ var NoteService = class {
           break;
         case "shelf":
           frontmatterLines.push(`${key}: ${JSON.stringify(book.shelf || "read")}`);
+          break;
+        case "field":
+        case "genres":
+          if (genres.length > 0) {
+            frontmatterLines.push(`${key}:`);
+            for (const g of genres) {
+              const formatted = /^[a-zA-Z0-9_\-\/]+$/.test(g) ? g : JSON.stringify(g);
+              frontmatterLines.push(`  - ${formatted}`);
+            }
+          }
           break;
         case "isbn":
           if (book.isbn) {
@@ -998,26 +1649,61 @@ var NoteService = class {
       bodyLines.push("---");
       bodyLines.push("");
     }
-    if (this.settings.includeHighlights && highlights.length > 0) {
+    const shouldEmbedHighlightsInMainNote = this.settings.includeHighlights && highlights.length > 0 && (this.settings.storageMode === "single" || !this.settings.createHighlightsFile);
+    if (shouldEmbedHighlightsInMainNote) {
       bodyLines.push(this.formatHighlightsMarkdown(highlights));
     }
     if (this.settings.includeReadingSections) {
-      bodyLines.push("# Key Takeaways & Highlights");
+      bodyLines.push("## Key Takeaways & Highlights");
       bodyLines.push("- ");
       bodyLines.push("");
-      bodyLines.push("# Memorable Quotes");
+      bodyLines.push("## Memorable Quotes");
       bodyLines.push("> ");
       bodyLines.push("");
-      bodyLines.push("# Personal Notes & Thoughts");
+      bodyLines.push("## Personal Notes & Thoughts");
       bodyLines.push("");
     }
-    return [...frontmatterLines, ...bodyLines].join("\n");
+    if (this.settings.storageMode === "folder" && (this.settings.includeBookDocuments ?? true)) {
+      const bookFolderPath = this.getBookFolderPath(book);
+      const docLinks = [];
+      if (this.settings.createHighlightsFile) {
+        docLinks.push(
+          `- \u{1F58D}\uFE0F [[${bookFolderPath}/Highlights & Notes|Highlights & Notes]]`
+        );
+      }
+      if (this.settings.createThoughtsFile) {
+        docLinks.push(
+          `- \u{1F4AD} [[${bookFolderPath}/My Thoughts|My Thoughts]]`
+        );
+      }
+      if (this.settings.createVocabularyFile) {
+        docLinks.push(
+          `- \u{1F4DA} [[${bookFolderPath}/Vocabulary|Vocabulary]]`
+        );
+      }
+      if (docLinks.length > 0) {
+        const lastNonEmpty = [...bodyLines].reverse().find((l) => l.trim().length > 0);
+        if (lastNonEmpty !== "---" && bodyLines.length > 0) {
+          bodyLines.push("---");
+          bodyLines.push("");
+        }
+        bodyLines.push("## \u{1F4C1} Book Documents");
+        bodyLines.push(...docLinks);
+        bodyLines.push("");
+      }
+    }
+    const rawNote = [...frontmatterLines, ...bodyLines].join("\n");
+    const cleanedNote = rawNote.replace(
+      /(?:\r?\n[ \t]*---[ \t]*\r?\n(?:[ \t]*\r?\n)*)+[ \t]*---[ \t]*(?:\r?\n|$)/g,
+      "\n---\n\n"
+    );
+    return cleanedNote;
   }
   /**
    * Ensures parent directory exists in vault
    */
   async ensureFolderExists(folderPath) {
-    const cleanPath = (0, import_obsidian4.normalizePath)(folderPath.trim());
+    const cleanPath = (0, import_obsidian5.normalizePath)(folderPath.trim());
     if (!cleanPath || cleanPath === "." || cleanPath === "/") {
       return;
     }
@@ -1028,27 +1714,63 @@ var NoteService = class {
       const file = this.app.vault.getAbstractFileByPath(currentPath);
       if (!file) {
         await this.app.vault.createFolder(currentPath);
-      } else if (!(file instanceof import_obsidian4.TFolder)) {
+      } else if (!(file instanceof import_obsidian5.TFolder)) {
         throw new Error(`Path conflict: "${currentPath}" exists but is not a folder.`);
       }
     }
   }
   /**
-   * Creates or opens note instantly, with non-blocking background highlight sync
+   * Creates or opens note, saving Goodreads Kindle highlights directly on creation
    */
   async createOrOpenBookNote(book) {
     const existingFile = this.findExistingBookNote(book);
     if (existingFile && !this.settings.overwriteExisting) {
+      let syncedCount = 0;
+      if (this.settings.includeHighlights) {
+        try {
+          syncedCount = await this.syncHighlightsToNote(
+            existingFile,
+            void 0,
+            book
+          );
+        } catch (err) {
+          console.warn(
+            `[Goodreads Bookshelf] Could not sync highlights to existing note "${book.title}":`,
+            err
+          );
+        }
+      }
       if (this.settings.openNoteAfterCreation) {
         await this.openFile(existingFile);
       }
-      return { file: existingFile, alreadyExisted: true, highlightsCount: 0 };
+      return {
+        file: existingFile,
+        alreadyExisted: true,
+        highlightsCount: syncedCount
+      };
     }
-    if (this.settings.folder.trim()) {
-      await this.ensureFolderExists(this.settings.folder);
+    const isFolderMode = this.settings.storageMode === "folder";
+    const bookFolderPath = isFolderMode ? this.getBookFolderPath(book) : this.settings.folder.trim();
+    if (bookFolderPath) {
+      await this.ensureFolderExists(bookFolderPath);
+    }
+    let highlights = [];
+    if (this.settings.includeHighlights && this.settings.userId) {
+      try {
+        highlights = await GoodreadsService.fetchBookHighlights(
+          this.settings.userId,
+          book.bookId,
+          this.settings.goodreadsCookie
+        );
+      } catch (err) {
+        console.warn(
+          `[Goodreads Bookshelf] Failed to fetch highlights for "${book.title}":`,
+          err
+        );
+      }
     }
     const notePath = this.getNoteFilePath(book);
-    const content = this.generateNoteContent(book, []);
+    const content = this.generateNoteContent(book, highlights);
     let targetFile;
     if (existingFile && this.settings.overwriteExisting) {
       await this.app.vault.modify(existingFile, content);
@@ -1056,47 +1778,122 @@ var NoteService = class {
     } else {
       targetFile = await this.app.vault.create(notePath, content);
     }
+    if (isFolderMode) {
+      if (this.settings.createHighlightsFile) {
+        const highlightsPath = (0, import_obsidian5.normalizePath)(
+          `${bookFolderPath}/Highlights & Notes.md`
+        );
+        const existingHighlights = this.app.vault.getAbstractFileByPath(highlightsPath);
+        const highlightsContent = await this.generateHighlightsNoteContent(
+          book,
+          highlights
+        );
+        if (!existingHighlights) {
+          await this.app.vault.create(highlightsPath, highlightsContent);
+        } else if (existingHighlights instanceof import_obsidian5.TFile && highlights.length > 0) {
+          await this.app.vault.modify(existingHighlights, highlightsContent);
+        }
+      }
+      if (this.settings.createThoughtsFile) {
+        const thoughtsPath = (0, import_obsidian5.normalizePath)(`${bookFolderPath}/My Thoughts.md`);
+        if (!this.app.vault.getAbstractFileByPath(thoughtsPath)) {
+          const thoughtsContent = await this.generateMyThoughtsContent(book);
+          await this.app.vault.create(thoughtsPath, thoughtsContent);
+        }
+      }
+      if (this.settings.createVocabularyFile) {
+        const vocabPath = (0, import_obsidian5.normalizePath)(`${bookFolderPath}/Vocabulary.md`);
+        if (!this.app.vault.getAbstractFileByPath(vocabPath)) {
+          const vocabContent = await this.generateVocabularyContent(book);
+          await this.app.vault.create(vocabPath, vocabContent);
+        }
+      }
+    }
     if (this.settings.openNoteAfterCreation) {
       await this.openFile(targetFile);
-    }
-    if (this.settings.includeHighlights) {
-      this.syncHighlightsInBackground(targetFile, book);
     }
     return {
       file: targetFile,
       alreadyExisted: false,
-      highlightsCount: 0
+      highlightsCount: highlights.length
     };
   }
   /**
-   * Asynchronously fetches highlights in background and appends them to the note
+   * Syncs highlights into an already existing active book note or its Highlights & Notes.md
    */
-  syncHighlightsInBackground(file, book) {
-    GoodreadsService.fetchBookHighlights(
-      this.settings.userId,
-      book.bookId,
-      this.settings.goodreadsCookie
-    ).then(async (highlights) => {
-      if (highlights && highlights.length > 0) {
-        await this.syncHighlightsToNote(file, highlights);
-        new import_obsidian4.Notice(
-          `Synced ${highlights.length} Kindle highlights for "${book.title}"!`,
-          4e3
-        );
+  async syncHighlightsToNote(file, cachedHighlights, book) {
+    let bookId = book?.bookId;
+    let mainTitle = book?.title ? this.getMainTitle(book.title) : file.basename;
+    let author = book?.author || "";
+    let shelf = book?.shelf || "read";
+    let targetHighlightFile = file;
+    if (!bookId) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (cache?.frontmatter?.goodreads_id) {
+        bookId = String(cache.frontmatter.goodreads_id);
+        mainTitle = cache.frontmatter.title || mainTitle;
+        author = cache.frontmatter.author || author;
+        shelf = cache.frontmatter.shelf || shelf;
       }
-    }).catch(() => {
-    });
-  }
-  /**
-   * Syncs highlights into an already existing active book note
-   */
-  async syncHighlightsToNote(file, cachedHighlights) {
-    const cache = this.app.metadataCache.getFileCache(file);
-    const bookId = cache?.frontmatter?.goodreads_id;
+    }
+    if (!bookId) {
+      try {
+        const raw = await this.app.vault.read(file);
+        const idMatch = raw.match(/goodreads_id:\s*["']?([0-9]+)["']?/);
+        if (idMatch && idMatch[1]) {
+          bookId = idMatch[1];
+          const titleMatch = raw.match(/title:\s*["']?([^"\r\n]+)["']?/);
+          if (titleMatch && titleMatch[1]) mainTitle = titleMatch[1];
+          const authorMatch = raw.match(/author:\s*["']?([^"\r\n]+)["']?/);
+          if (authorMatch && authorMatch[1]) author = authorMatch[1];
+          const shelfMatch = raw.match(/shelf:\s*["']?([^"\r\n]+)["']?/);
+          if (shelfMatch && shelfMatch[1]) shelf = shelfMatch[1];
+        }
+      } catch {
+      }
+    }
+    if (!bookId && this.settings.storageMode === "folder" && file.parent) {
+      for (const sibling of file.parent.children) {
+        if (sibling instanceof import_obsidian5.TFile && sibling.extension === "md" && sibling.path !== file.path) {
+          const sCache = this.app.metadataCache.getFileCache(sibling);
+          if (sCache?.frontmatter?.goodreads_id) {
+            bookId = String(sCache.frontmatter.goodreads_id);
+            mainTitle = sCache.frontmatter.title || sibling.basename;
+            author = sCache.frontmatter.author || author;
+            shelf = sCache.frontmatter.shelf || shelf;
+            break;
+          }
+          try {
+            const sRaw = await this.app.vault.read(sibling);
+            const sMatch = sRaw.match(/goodreads_id:\s*["']?([0-9]+)["']?/);
+            if (sMatch && sMatch[1]) {
+              bookId = sMatch[1];
+              const titleMatch = sRaw.match(/title:\s*["']?([^"\r\n]+)["']?/);
+              if (titleMatch && titleMatch[1]) mainTitle = titleMatch[1];
+              const authorMatch = sRaw.match(/author:\s*["']?([^"\r\n]+)["']?/);
+              if (authorMatch && authorMatch[1]) author = authorMatch[1];
+              const shelfMatch = sRaw.match(/shelf:\s*["']?([^"\r\n]+)["']?/);
+              if (shelfMatch && shelfMatch[1]) shelf = shelfMatch[1];
+              break;
+            }
+          } catch {
+          }
+        }
+      }
+    }
     if (!bookId) {
       throw new Error(
-        "Current file does not have a 'goodreads_id' in its frontmatter."
+        "Current file or book folder does not have a 'goodreads_id' in its frontmatter."
       );
+    }
+    if (this.settings.storageMode === "folder" && this.settings.createHighlightsFile && file.parent) {
+      const candidatePath = (0, import_obsidian5.normalizePath)(
+        `${file.parent.path}/Highlights & Notes.md`
+      );
+      const candidate = this.app.vault.getAbstractFileByPath(candidatePath);
+      if (candidate instanceof import_obsidian5.TFile) {
+        targetHighlightFile = candidate;
+      }
     }
     const highlights = cachedHighlights || await GoodreadsService.fetchBookHighlights(
       this.settings.userId,
@@ -1106,16 +1903,61 @@ var NoteService = class {
     if (highlights.length === 0) {
       return 0;
     }
+    if (targetHighlightFile.name === "Highlights & Notes.md") {
+      const bookStub = book || {
+        bookId,
+        title: mainTitle,
+        author,
+        shelf,
+        isbn: "",
+        coverUrl: "",
+        largeCoverUrl: "",
+        userRating: 0,
+        averageRating: 0,
+        pages: null,
+        publishedYear: "",
+        userReadAt: "",
+        userDateAdded: "",
+        userShelves: [],
+        userReview: "",
+        description: "",
+        link: "",
+        guid: ""
+      };
+      const newContent2 = await this.generateHighlightsNoteContent(
+        bookStub,
+        highlights
+      );
+      await this.app.vault.modify(targetHighlightFile, newContent2);
+      return highlights.length;
+    }
     const highlightsMd = this.formatHighlightsMarkdown(highlights);
-    const currentContent = await this.app.vault.read(file);
+    const currentContent = await this.app.vault.read(targetHighlightFile);
     const sectionRegex = /#{1,6}\s+Highlights & Annotations[\s\S]*?(?=\n#{1,6}\s+|$)/;
     let newContent;
     if (sectionRegex.test(currentContent)) {
       newContent = currentContent.replace(sectionRegex, highlightsMd.trim());
+    } else if (currentContent.includes("## \u{1F4C1} Book Documents")) {
+      const trimmedMd = highlightsMd.trim();
+      const insert = trimmedMd.endsWith("---") ? `${trimmedMd}
+
+## \u{1F4C1} Book Documents` : `${trimmedMd}
+
+---
+
+## \u{1F4C1} Book Documents`;
+      newContent = currentContent.replace(
+        /(?:---\s*\r?\n+)?## 📁 Book Documents/,
+        insert
+      );
     } else {
       newContent = currentContent.trimEnd() + "\n\n" + highlightsMd;
     }
-    await this.app.vault.modify(file, newContent);
+    newContent = newContent.replace(
+      /(?:\r?\n[ \t]*---[ \t]*\r?\n(?:[ \t]*\r?\n)*)+[ \t]*---[ \t]*(?:\r?\n|$)/g,
+      "\n---\n\n"
+    );
+    await this.app.vault.modify(targetHighlightFile, newContent);
     return highlights.length;
   }
   /**
@@ -1135,7 +1977,7 @@ var NoteService = class {
 
 // src/bookshelf-view.ts
 var VIEW_TYPE_GOODREADS = "goodreads-bookshelf-view";
-var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
+var GoodreadsBookshelfView = class extends import_obsidian6.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -1194,7 +2036,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       this.books = res.books;
       this.isLoading = false;
       this.render();
-      new import_obsidian5.Notice(`Loaded ${this.books.length} books from Goodreads`);
+      new import_obsidian6.Notice(`Loaded ${this.books.length} books from Goodreads`);
     } catch (err) {
       this.isLoading = false;
       this.errorMessage = err.message || "Failed to fetch Goodreads books";
@@ -1233,7 +2075,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
     const header = container.createDiv({ cls: "gr-bookshelf-header" });
     const titleGroup = header.createDiv({ cls: "gr-header-title-group" });
     const iconSpan = titleGroup.createSpan({ cls: "gr-header-icon" });
-    (0, import_obsidian5.setIcon)(iconSpan, "library");
+    (0, import_obsidian6.setIcon)(iconSpan, "library");
     const textGroup = titleGroup.createDiv();
     textGroup.createEl("h2", { text: "Goodreads Bookshelf", cls: "gr-title" });
     const subText = textGroup.createSpan({ cls: "gr-subtitle" });
@@ -1247,13 +2089,13 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       cls: "gr-icon-btn",
       title: "Refresh Bookshelf"
     });
-    (0, import_obsidian5.setIcon)(refreshBtn, "refresh-cw");
+    (0, import_obsidian6.setIcon)(refreshBtn, "refresh-cw");
     refreshBtn.addEventListener("click", () => this.loadBooks());
     const settingsBtn = actions.createEl("button", {
       cls: "gr-icon-btn",
       title: "Open Plugin Settings"
     });
-    (0, import_obsidian5.setIcon)(settingsBtn, "settings");
+    (0, import_obsidian6.setIcon)(settingsBtn, "settings");
     settingsBtn.addEventListener("click", () => {
       this.app.setting.open();
       this.app.setting.openTabById(this.plugin.manifest.id);
@@ -1265,7 +2107,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
   renderEmptySettingsState(container) {
     const emptyState = container.createDiv({ cls: "gr-empty-state" });
     const iconEl = emptyState.createDiv({ cls: "gr-empty-icon" });
-    (0, import_obsidian5.setIcon)(iconEl, "book-open");
+    (0, import_obsidian6.setIcon)(iconEl, "book-open");
     emptyState.createEl("h3", { text: "Welcome to Goodreads Bookshelf" });
     emptyState.createEl("p", {
       text: "Please configure your Goodreads User ID in settings to view and sync your shelves."
@@ -1285,7 +2127,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
   renderLoadingState(container) {
     const loadingState = container.createDiv({ cls: "gr-loading-state" });
     const spinner = loadingState.createDiv({ cls: "gr-spinner" });
-    (0, import_obsidian5.setIcon)(spinner, "loader-2");
+    (0, import_obsidian6.setIcon)(spinner, "loader-2");
     loadingState.createEl("p", {
       text: `Fetching books for shelf "${this.activeShelf}"...`
     });
@@ -1296,7 +2138,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
   renderErrorState(container) {
     const errState = container.createDiv({ cls: "gr-error-state" });
     const iconEl = errState.createDiv({ cls: "gr-error-icon" });
-    (0, import_obsidian5.setIcon)(iconEl, "alert-circle");
+    (0, import_obsidian6.setIcon)(iconEl, "alert-circle");
     errState.createEl("h3", { text: "Could Not Load Bookshelf" });
     errState.createEl("p", { text: this.errorMessage });
     const btnGroup = errState.createDiv({ cls: "gr-error-btns" });
@@ -1346,7 +2188,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
     const controlsRow = toolbar.createDiv({ cls: "gr-controls-row" });
     const searchContainer = controlsRow.createDiv({ cls: "gr-search-box" });
     const searchIcon = searchContainer.createSpan({ cls: "gr-search-icon" });
-    (0, import_obsidian5.setIcon)(searchIcon, "search");
+    (0, import_obsidian6.setIcon)(searchIcon, "search");
     const input = searchContainer.createEl("input", {
       type: "text",
       placeholder: "Search by title, author, or shelf tags...",
@@ -1356,7 +2198,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       cls: `gr-search-clear-btn ${this.searchQuery ? "is-visible" : ""}`,
       title: "Clear search"
     });
-    (0, import_obsidian5.setIcon)(clearBtn, "x");
+    (0, import_obsidian6.setIcon)(clearBtn, "x");
     input.addEventListener("input", (e) => {
       this.searchQuery = e.target.value.toLowerCase();
       if (this.searchQuery) {
@@ -1422,7 +2264,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       cls: `gr-view-btn ${this.viewMode === "grid" ? "is-active" : ""}`,
       title: "Grid View"
     });
-    (0, import_obsidian5.setIcon)(gridBtn, "layout-grid");
+    (0, import_obsidian6.setIcon)(gridBtn, "layout-grid");
     gridBtn.addEventListener("click", () => {
       this.viewMode = "grid";
       this.updateToolbarAndList();
@@ -1431,7 +2273,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       cls: `gr-view-btn ${this.viewMode === "list" ? "is-active" : ""}`,
       title: "List View"
     });
-    (0, import_obsidian5.setIcon)(listBtn, "list");
+    (0, import_obsidian6.setIcon)(listBtn, "list");
     listBtn.addEventListener("click", () => {
       this.viewMode = "list";
       this.updateToolbarAndList();
@@ -1509,7 +2351,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
         cls: "gr-batch-btn",
         text: "Save all visible as notes"
       });
-      (0, import_obsidian5.setIcon)(batchBtn.createSpan({ cls: "gr-batch-icon" }), "download");
+      (0, import_obsidian6.setIcon)(batchBtn.createSpan({ cls: "gr-batch-icon" }), "download");
       batchBtn.addEventListener("click", () => this.batchImportBooks(filtered));
     }
     if (filtered.length === 0) {
@@ -1517,7 +2359,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
         cls: "gr-books-view gr-no-results"
       });
       const icon = emptyMsg.createDiv({ cls: "gr-empty-icon" });
-      (0, import_obsidian5.setIcon)(icon, "search-x");
+      (0, import_obsidian6.setIcon)(icon, "search-x");
       emptyMsg.createEl("p", {
         text: "No books match your current search or filter."
       });
@@ -1562,7 +2404,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
     }
     if (isSaved) {
       const savedBadge = coverWrapper.createDiv({ cls: "gr-saved-badge" });
-      (0, import_obsidian5.setIcon)(savedBadge, "check");
+      (0, import_obsidian6.setIcon)(savedBadge, "check");
       savedBadge.createSpan({ text: "Saved" });
     }
     const info = card.createDiv({ cls: "gr-card-info" });
@@ -1603,7 +2445,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       cls: `gr-action-btn ${isSaved ? "gr-btn-open" : "gr-btn-create mod-cta"}`
     });
     const iconSpan = primaryBtn.createSpan({ cls: "gr-btn-icon" });
-    (0, import_obsidian5.setIcon)(iconSpan, isSaved ? "file-text" : "plus");
+    (0, import_obsidian6.setIcon)(iconSpan, isSaved ? "file-text" : "plus");
     const labelSpan = primaryBtn.createSpan({ cls: "gr-btn-label" });
     labelSpan.setText(isSaved ? "Open Note" : "Create Note");
     const handleBookClick = async () => {
@@ -1612,13 +2454,22 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
         labelSpan.setText("Working...");
         const res = await noteService.createOrOpenBookNote(book);
         if (res.alreadyExisted) {
-          new import_obsidian5.Notice(`Opened existing note: "${book.title}"`);
+          if (res.highlightsCount > 0) {
+            new import_obsidian6.Notice(`Synced ${res.highlightsCount} Kindle highlights to "${book.title}"!`);
+          } else {
+            new import_obsidian6.Notice(`Opened existing note: "${book.title}"`);
+          }
+        } else if (res.highlightsCount > 0) {
+          new import_obsidian6.Notice(
+            `Created note for "${book.title}" with ${res.highlightsCount} Kindle highlights!`,
+            5e3
+          );
         } else {
-          new import_obsidian5.Notice(`Created book note: "${book.title}"`);
+          new import_obsidian6.Notice(`Created book note: "${book.title}"`);
         }
         this.updateBookListOnly();
       } catch (err) {
-        new import_obsidian5.Notice(`Error: ${err.message}`);
+        new import_obsidian6.Notice(`Error: ${err.message}`);
         labelSpan.setText(isSaved ? "Open Note" : "Create Note");
         primaryBtn.disabled = false;
       }
@@ -1634,7 +2485,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
         href: book.link,
         title: "View on Goodreads"
       });
-      (0, import_obsidian5.setIcon)(linkBtn, "external-link");
+      (0, import_obsidian6.setIcon)(linkBtn, "external-link");
     }
   }
   /**
@@ -1651,7 +2502,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       });
     } else {
       const placeholder = miniCover.createDiv({ cls: "gr-mini-fallback" });
-      (0, import_obsidian5.setIcon)(placeholder, "book");
+      (0, import_obsidian6.setIcon)(placeholder, "book");
     }
     const info = row.createDiv({ cls: "gr-row-info" });
     const titleEl = info.createEl("div", {
@@ -1688,7 +2539,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       cls: `gr-action-btn ${isSaved ? "gr-btn-open" : "gr-btn-create mod-cta"}`
     });
     const iconSpan = btn.createSpan({ cls: "gr-btn-icon" });
-    (0, import_obsidian5.setIcon)(iconSpan, isSaved ? "file-text" : "plus");
+    (0, import_obsidian6.setIcon)(iconSpan, isSaved ? "file-text" : "plus");
     const labelSpan = btn.createSpan({ cls: "gr-btn-label" });
     labelSpan.setText(isSaved ? "Open" : "Save Note");
     const handleClick = async () => {
@@ -1696,13 +2547,22 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
         btn.disabled = true;
         const res = await noteService.createOrOpenBookNote(book);
         if (res.alreadyExisted) {
-          new import_obsidian5.Notice(`Opened: "${book.title}"`);
+          if (res.highlightsCount > 0) {
+            new import_obsidian6.Notice(`Synced ${res.highlightsCount} Kindle highlights to "${book.title}"!`);
+          } else {
+            new import_obsidian6.Notice(`Opened: "${book.title}"`);
+          }
+        } else if (res.highlightsCount > 0) {
+          new import_obsidian6.Notice(
+            `Saved "${book.title}" with ${res.highlightsCount} Kindle highlights!`,
+            5e3
+          );
         } else {
-          new import_obsidian5.Notice(`Created book note: "${book.title}"`);
+          new import_obsidian6.Notice(`Created book note: "${book.title}"`);
         }
         this.updateBookListOnly();
       } catch (err) {
-        new import_obsidian5.Notice(`Error: ${err.message}`);
+        new import_obsidian6.Notice(`Error: ${err.message}`);
         btn.disabled = false;
       }
     };
@@ -1714,7 +2574,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
         href: book.link,
         title: "View on Goodreads"
       });
-      (0, import_obsidian5.setIcon)(link, "external-link");
+      (0, import_obsidian6.setIcon)(link, "external-link");
     }
   }
   /**
@@ -1723,7 +2583,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
   renderFallbackCover(container, book) {
     const fallback = container.createDiv({ cls: "gr-cover-fallback" });
     const bookIcon = fallback.createDiv({ cls: "gr-fallback-icon" });
-    (0, import_obsidian5.setIcon)(bookIcon, "book");
+    (0, import_obsidian6.setIcon)(bookIcon, "book");
     fallback.createDiv({ text: book.title, cls: "gr-fallback-title" });
     fallback.createDiv({ text: book.author, cls: "gr-fallback-author" });
   }
@@ -1736,7 +2596,7 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
       (b) => noteService.findExistingBookNote(b) === null
     );
     if (unSavedBooks.length === 0) {
-      new import_obsidian5.Notice("All visible books already have notes created in your vault!");
+      new import_obsidian6.Notice("All visible books already have notes created in your vault!");
       return;
     }
     const confirmed = window.confirm(
@@ -1746,18 +2606,18 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
     let createdCount = 0;
     const originalSetting = this.plugin.settings.openNoteAfterCreation;
     this.plugin.settings.openNoteAfterCreation = false;
-    new import_obsidian5.Notice(`Creating ${unSavedBooks.length} book notes...`);
+    new import_obsidian6.Notice(`Creating ${unSavedBooks.length} book notes...`);
     try {
       for (const book of unSavedBooks) {
         await noteService.createOrOpenBookNote(book);
         createdCount++;
       }
-      new import_obsidian5.Notice(
+      new import_obsidian6.Notice(
         `Successfully created ${createdCount} book notes!`,
         5e3
       );
     } catch (err) {
-      new import_obsidian5.Notice(`Error during batch import: ${err.message}`);
+      new import_obsidian6.Notice(`Error during batch import: ${err.message}`);
     } finally {
       this.plugin.settings.openNoteAfterCreation = originalSetting;
       this.updateBookListOnly();
@@ -1766,8 +2626,8 @@ var GoodreadsBookshelfView = class extends import_obsidian5.ItemView {
 };
 
 // src/bookshelf-modal.ts
-var import_obsidian6 = require("obsidian");
-var GoodreadsBookSuggestModal = class extends import_obsidian6.SuggestModal {
+var import_obsidian7 = require("obsidian");
+var GoodreadsBookSuggestModal = class extends import_obsidian7.SuggestModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -1779,7 +2639,7 @@ var GoodreadsBookSuggestModal = class extends import_obsidian6.SuggestModal {
     super.onOpen();
     const userId = this.plugin.settings.userId.trim();
     if (!userId) {
-      new import_obsidian6.Notice("Please set your Goodreads User ID in plugin settings first.");
+      new import_obsidian7.Notice("Please set your Goodreads User ID in plugin settings first.");
       this.close();
       return;
     }
@@ -1793,7 +2653,7 @@ var GoodreadsBookSuggestModal = class extends import_obsidian6.SuggestModal {
       this.isLoading = false;
       this.updateSuggestions();
     } catch (err) {
-      new import_obsidian6.Notice(`Failed to load Goodreads books: ${err.message}`);
+      new import_obsidian7.Notice(`Failed to load Goodreads books: ${err.message}`);
       this.close();
     }
   }
@@ -1855,18 +2715,27 @@ var GoodreadsBookSuggestModal = class extends import_obsidian6.SuggestModal {
     try {
       const res = await noteService.createOrOpenBookNote(book);
       if (res.alreadyExisted) {
-        new import_obsidian6.Notice(`Opened existing note: "${book.title}"`);
+        if (res.highlightsCount > 0) {
+          new import_obsidian7.Notice(`Synced ${res.highlightsCount} Kindle highlights to "${book.title}"!`);
+        } else {
+          new import_obsidian7.Notice(`Opened existing note: "${book.title}"`);
+        }
+      } else if (res.highlightsCount > 0) {
+        new import_obsidian7.Notice(
+          `Created note for "${book.title}" with ${res.highlightsCount} Kindle highlights!`,
+          5e3
+        );
       } else {
-        new import_obsidian6.Notice(`Created book note: "${book.title}"`);
+        new import_obsidian7.Notice(`Created book note: "${book.title}"`);
       }
     } catch (err) {
-      new import_obsidian6.Notice(`Error creating note: ${err.message}`);
+      new import_obsidian7.Notice(`Error creating note: ${err.message}`);
     }
   }
 };
 
 // src/main.ts
-var GoodreadsBookshelfPlugin = class extends import_obsidian7.Plugin {
+var GoodreadsBookshelfPlugin = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
@@ -1913,26 +2782,109 @@ var GoodreadsBookshelfPlugin = class extends import_obsidian7.Plugin {
         const activeFile = this.app.workspace.getActiveFile();
         if (!activeFile) return false;
         const cache = this.app.metadataCache.getFileCache(activeFile);
-        if (!cache?.frontmatter?.goodreads_id) return false;
+        let hasBookId = !!cache?.frontmatter?.goodreads_id;
+        if (!hasBookId && this.settings.storageMode === "folder" && activeFile.parent) {
+          hasBookId = activeFile.parent.children.some(
+            (c) => c instanceof import_obsidian8.TFile && c.extension === "md" && c.path !== activeFile.path && !!this.app.metadataCache.getFileCache(c)?.frontmatter?.goodreads_id
+          );
+        }
+        if (!hasBookId) return false;
         if (!checking) {
           const noteService = new NoteService(this.app, this.settings);
-          new import_obsidian7.Notice("Fetching highlights from Goodreads...");
+          new import_obsidian8.Notice("Fetching highlights from Goodreads...");
           noteService.syncHighlightsToNote(activeFile).then((count) => {
             if (count > 0) {
-              new import_obsidian7.Notice(`Successfully synced ${count} highlights!`, 5e3);
+              new import_obsidian8.Notice(`Successfully synced ${count} highlights!`, 5e3);
             } else {
-              new import_obsidian7.Notice(
+              new import_obsidian8.Notice(
                 "No highlights found. If your Kindle highlights are private, check the session cookie setting.",
                 6e3
               );
             }
           }).catch((err) => {
-            new import_obsidian7.Notice(`Error syncing highlights: ${err.message}`, 6e3);
+            new import_obsidian8.Notice(`Error syncing highlights: ${err.message}`, 6e3);
           });
         }
         return true;
       }
     });
+    this.addCommand({
+      id: "insert-highlight-template",
+      name: "Insert Highlight Entry Template",
+      editorCallback: (editor) => {
+        const noteService = new NoteService(this.app, this.settings);
+        const snippet = noteService.getSingleHighlightSnippet();
+        const cursor = editor.getCursor();
+        editor.replaceRange(snippet, cursor);
+        editor.setCursor({ line: cursor.line, ch: cursor.ch + 2 });
+      }
+    });
+    this.addCommand({
+      id: "insert-vocabulary-template",
+      name: "Insert Vocabulary Entry Template",
+      editorCallback: (editor) => {
+        const noteService = new NoteService(this.app, this.settings);
+        const snippet = noteService.getSingleVocabularySnippet();
+        const cursor = editor.getCursor();
+        editor.replaceRange(snippet, cursor);
+        const h = noteService.getHeadingPrefix(
+          this.settings.vocabularyHeadingLevel || "h3"
+        );
+        const wordStart = cursor.ch + h.length + 1;
+        editor.setSelection(
+          { line: cursor.line, ch: wordStart },
+          { line: cursor.line, ch: wordStart + 4 }
+        );
+      }
+    });
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor) => {
+        if (!this.settings.enableSnippetTriggers) return;
+        const cursor = editor.getCursor();
+        const lineText = editor.getLine(cursor.line);
+        const textBeforeCursor = lineText.slice(0, cursor.ch);
+        const hlTrigger = (this.settings.highlightSnippetTrigger || "/highlight").trim();
+        const vocabTrigger = (this.settings.vocabularySnippetTrigger || "/vocab").trim();
+        if (hlTrigger && textBeforeCursor.endsWith(hlTrigger)) {
+          const startCh = cursor.ch - hlTrigger.length;
+          const noteService = new NoteService(this.app, this.settings);
+          const snippet = noteService.getSingleHighlightSnippet();
+          editor.replaceRange(
+            snippet,
+            { line: cursor.line, ch: startCh },
+            cursor
+          );
+          editor.setCursor({ line: cursor.line, ch: startCh + 2 });
+        } else {
+          let matchedVocabTrigger = "";
+          if (vocabTrigger && textBeforeCursor.endsWith(vocabTrigger)) {
+            matchedVocabTrigger = vocabTrigger;
+          } else if (textBeforeCursor.endsWith("/note")) {
+            matchedVocabTrigger = "/note";
+          } else if (textBeforeCursor.endsWith("/vocab")) {
+            matchedVocabTrigger = "/vocab";
+          }
+          if (matchedVocabTrigger) {
+            const startCh = cursor.ch - matchedVocabTrigger.length;
+            const noteService = new NoteService(this.app, this.settings);
+            const snippet = noteService.getSingleVocabularySnippet();
+            editor.replaceRange(
+              snippet,
+              { line: cursor.line, ch: startCh },
+              cursor
+            );
+            const h = noteService.getHeadingPrefix(
+              this.settings.vocabularyHeadingLevel || "h3"
+            );
+            const wordStart = startCh + h.length + 1;
+            editor.setSelection(
+              { line: cursor.line, ch: wordStart },
+              { line: cursor.line, ch: wordStart + 4 }
+            );
+          }
+        }
+      })
+    );
     this.addSettingTab(new GoodreadsSettingTab(this.app, this));
   }
   onunload() {
@@ -1942,6 +2894,26 @@ var GoodreadsBookshelfPlugin = class extends import_obsidian7.Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     if (!this.settings.properties || !Array.isArray(this.settings.properties) || this.settings.properties.length === 0) {
       this.settings.properties = JSON.parse(JSON.stringify(DEFAULT_PROPERTIES));
+    } else {
+      const hasFieldProp = this.settings.properties.some(
+        (p) => p.field === "field" || p.field === "genres"
+      );
+      if (!hasFieldProp) {
+        const shelfIdx = this.settings.properties.findIndex(
+          (p) => p.field === "shelf"
+        );
+        const newProp = {
+          id: "prop-field",
+          key: "field",
+          field: "field",
+          enabled: true
+        };
+        if (shelfIdx >= 0) {
+          this.settings.properties.splice(shelfIdx + 1, 0, newProp);
+        } else {
+          this.settings.properties.push(newProp);
+        }
+      }
     }
   }
   async saveSettings() {

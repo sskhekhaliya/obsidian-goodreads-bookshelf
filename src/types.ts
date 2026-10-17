@@ -29,6 +29,8 @@ export interface GoodreadsHighlight {
 
 export type OpenLocation = "active" | "new-tab" | "split";
 export type NoteTitleFormat = "title" | "title-author" | "author-title";
+export type NoteStorageMode = "single" | "folder";
+export type HeadingLevel = "h1" | "h2" | "h3" | "h4";
 
 export interface FrontmatterPropertyConfig {
   id: string;
@@ -43,6 +45,7 @@ export const DEFAULT_PROPERTIES: FrontmatterPropertyConfig[] = [
   { id: "prop-author", key: "author", field: "author", enabled: true },
   { id: "prop-goodreads_id", key: "goodreads_id", field: "goodreads_id", enabled: true },
   { id: "prop-shelf", key: "shelf", field: "shelf", enabled: true },
+  { id: "prop-field", key: "field", field: "field", enabled: true },
   { id: "prop-isbn", key: "isbn", field: "isbn", enabled: true },
   { id: "prop-rating", key: "my_rating", field: "rating", enabled: true },
   { id: "prop-average_rating", key: "average_rating", field: "average_rating", enabled: true },
@@ -73,6 +76,21 @@ export interface GoodreadsPluginSettings {
   goodreadsCookie: string;
   overwriteExisting: boolean;
   properties: FrontmatterPropertyConfig[];
+  storageMode: NoteStorageMode;
+  includeBookDocuments: boolean;
+  createHighlightsFile: boolean;
+  createThoughtsFile: boolean;
+  createVocabularyFile: boolean;
+  vocabularyHeadingLevel: HeadingLevel;
+  customThoughtsTemplate: string;
+  customVocabularyTemplate: string;
+  customHighlightsTemplate: string;
+  highlightsTemplatePath: string;
+  thoughtsTemplatePath: string;
+  vocabularyTemplatePath: string;
+  enableSnippetTriggers: boolean;
+  highlightSnippetTrigger: string;
+  vocabularySnippetTrigger: string;
 }
 
 export const DEFAULT_SETTINGS: GoodreadsPluginSettings = {
@@ -92,5 +110,20 @@ export const DEFAULT_SETTINGS: GoodreadsPluginSettings = {
   includeHighlights: true,
   goodreadsCookie: "",
   overwriteExisting: false,
-  properties: DEFAULT_PROPERTIES
+  properties: DEFAULT_PROPERTIES,
+  storageMode: "single",
+  includeBookDocuments: true,
+  createHighlightsFile: true,
+  createThoughtsFile: true,
+  createVocabularyFile: true,
+  vocabularyHeadingLevel: "h3",
+  customThoughtsTemplate: "",
+  customVocabularyTemplate: "",
+  customHighlightsTemplate: "",
+  highlightsTemplatePath: "",
+  thoughtsTemplatePath: "",
+  vocabularyTemplatePath: "",
+  enableSnippetTriggers: true,
+  highlightSnippetTrigger: "/highlight",
+  vocabularySnippetTrigger: "/vocab"
 };

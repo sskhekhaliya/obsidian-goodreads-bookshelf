@@ -7,12 +7,15 @@ import {
 } from "obsidian";
 import type GoodreadsBookshelfPlugin from "./main";
 import { FolderSuggest } from "./folder-suggest";
+import { FileSuggest } from "./file-suggest";
 import { GoodreadsService } from "./goodreads-service";
 import {
   DEFAULT_PROPERTIES,
   FrontmatterPropertyConfig,
   NoteTitleFormat,
-  OpenLocation
+  OpenLocation,
+  NoteStorageMode,
+  HeadingLevel
 } from "./types";
 
 export class GoodreadsSettingTab extends PluginSettingTab {
@@ -163,17 +166,195 @@ export class GoodreadsSettingTab extends PluginSettingTab {
       );
 
     new Setting(container)
-      .setName("Default Tag")
-      .setDesc("Base tag added to the frontmatter tags list (without #).")
+      .setName("Default Tags")
+      .setDesc(
+        "Tags added to the frontmatter tags list (comma-separated, without #). Supports dynamic property variables like {{field}}, {{shelf}}, {{author}}, etc."
+      )
       .addText((text) =>
         text
-          .setPlaceholder("e.g. book")
+          .setPlaceholder("e.g. book, {{field}}")
           .setValue(this.plugin.settings.tagPrefix)
           .onChange(async (val) => {
             this.plugin.settings.tagPrefix = val.trim();
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(container)
+      .setName("Note Storage Structure")
+      .setDesc(
+        "Choose whether each book is saved as a single markdown file or as an organized folder containing modular sub-notes."
+      )
+      .addDropdown((dd) =>
+        dd
+          .addOption("single", "Single File (e.g. Books/Dune.md)")
+          .addOption(
+            "folder",
+            "Folder per Book (e.g. Books/Dune/Dune.md + sub-notes)"
+          )
+          .setValue(this.plugin.settings.storageMode)
+          .onChange(async (val) => {
+            this.plugin.settings.storageMode = val as NoteStorageMode;
+            await this.plugin.saveSettings();
+            this.display();
+          })
+      );
+
+    if (this.plugin.settings.storageMode === "folder") {
+      new Setting(container)
+        .setName("Generate Highlights & Notes File")
+        .setDesc(
+          "Generates a dedicated Highlights & Notes.md file inside the book folder."
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.createHighlightsFile)
+            .onChange(async (val) => {
+              this.plugin.settings.createHighlightsFile = val;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Generate My Thoughts File")
+        .setDesc(
+          "Generates a dedicated My Thoughts.md file for personal interpretations, insights, and reviews."
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.createThoughtsFile)
+            .onChange(async (val) => {
+              this.plugin.settings.createThoughtsFile = val;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Generate Vocabulary File")
+        .setDesc(
+          "Generates a dedicated Vocabulary.md file formatted for vocabulary tracking and flashcards."
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.createVocabularyFile)
+            .onChange(async (val) => {
+              this.plugin.settings.createVocabularyFile = val;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Include 'Book Documents' Section in Main Note")
+        .setDesc(
+          "Includes links to sub-documents (Highlights, Thoughts, Vocabulary) under a '## 📁 Book Documents' section in the main book note."
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.includeBookDocuments ?? true)
+            .onChange(async (val) => {
+              this.plugin.settings.includeBookDocuments = val;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Vocabulary Heading Level")
+        .setDesc(
+          "Markdown heading level used for each word entry in Vocabulary.md."
+        )
+        .addDropdown((dd) =>
+          dd
+            .addOption("h1", "H1 (#)")
+            .addOption("h2", "H2 (##)")
+            .addOption("h3", "H3 (###) — Default")
+            .addOption("h4", "H4 (####)")
+            .setValue(this.plugin.settings.vocabularyHeadingLevel || "h3")
+            .onChange(async (val) => {
+              this.plugin.settings.vocabularyHeadingLevel = val as HeadingLevel;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Highlights & Notes Template File (Vault)")
+        .setDesc(
+          "Choose a markdown template file from your vault for Highlights & Notes.md. Supports {{highlight}}, {{location}}, {{note}}, {{title}}, {{author}}, and {{book_link}}."
+        )
+        .addText((text) => {
+          text
+            .setPlaceholder("e.g. Templates/Highlights.md")
+            .setValue(this.plugin.settings.highlightsTemplatePath || "")
+            .onChange(async (val) => {
+              this.plugin.settings.highlightsTemplatePath = val.trim();
+              await this.plugin.saveSettings();
+            });
+          new FileSuggest(this.app, text.inputEl);
+        });
+
+      new Setting(container)
+        .setName("My Thoughts Template File (Vault)")
+        .setDesc(
+          "Choose a markdown template file from your vault for My Thoughts.md. Supports {{title}}, {{author}}, and {{book_link}}."
+        )
+        .addText((text) => {
+          text
+            .setPlaceholder("e.g. Templates/Thoughts.md")
+            .setValue(this.plugin.settings.thoughtsTemplatePath || "")
+            .onChange(async (val) => {
+              this.plugin.settings.thoughtsTemplatePath = val.trim();
+              await this.plugin.saveSettings();
+            });
+          new FileSuggest(this.app, text.inputEl);
+        });
+
+      new Setting(container)
+        .setName("Vocabulary Template File (Vault)")
+        .setDesc(
+          "Choose a markdown template file from your vault for Vocabulary.md. Supports {{title}}, {{author}}, {{book_link}}, and {{h}}."
+        )
+        .addText((text) => {
+          text
+            .setPlaceholder("e.g. Templates/Vocabulary.md")
+            .setValue(this.plugin.settings.vocabularyTemplatePath || "")
+            .onChange(async (val) => {
+              this.plugin.settings.vocabularyTemplatePath = val.trim();
+              await this.plugin.saveSettings();
+            });
+          new FileSuggest(this.app, text.inputEl);
+        });
+
+      new Setting(container)
+        .setName("Custom 'My Thoughts' Template (Inline Fallback)")
+        .setDesc(
+          "Inline template for My Thoughts.md if no vault file is selected above. Supports {{title}}, {{author}}, and {{book_link}}."
+        )
+        .addTextArea((ta) => {
+          ta.setPlaceholder("Leave empty to use built-in default template")
+            .setValue(this.plugin.settings.customThoughtsTemplate || "")
+            .onChange(async (val) => {
+              this.plugin.settings.customThoughtsTemplate = val;
+              await this.plugin.saveSettings();
+            });
+          ta.inputEl.rows = 4;
+          ta.inputEl.cols = 40;
+        });
+
+      new Setting(container)
+        .setName("Custom 'Vocabulary' Template (Inline Fallback)")
+        .setDesc(
+          "Inline template for Vocabulary.md if no vault file is selected above. Supports {{title}}, {{author}}, {{book_link}}, and {{h}}."
+        )
+        .addTextArea((ta) => {
+          ta.setPlaceholder("Leave empty to use built-in default template")
+            .setValue(this.plugin.settings.customVocabularyTemplate || "")
+            .onChange(async (val) => {
+              this.plugin.settings.customVocabularyTemplate = val;
+              await this.plugin.saveSettings();
+            });
+          ta.inputEl.rows = 4;
+          ta.inputEl.cols = 40;
+        });
+    }
 
     container.createEl("h3", { text: "Editor Behavior" });
 
@@ -217,6 +398,52 @@ export class GoodreadsSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    container.createEl("h3", { text: "Quick Insert & Snippet Triggers" });
+
+    new Setting(container)
+      .setName("Enable Inline Snippet Triggers")
+      .setDesc(
+        "Automatically expand trigger keywords into templates while typing in the editor (e.g. typing /highlight or /vocab)."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableSnippetTriggers)
+          .onChange(async (val) => {
+            this.plugin.settings.enableSnippetTriggers = val;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(container)
+      .setName("Highlight Snippet Trigger")
+      .setDesc(
+        "Keyword trigger that automatically expands into a highlight template block."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("/highlight")
+          .setValue(this.plugin.settings.highlightSnippetTrigger)
+          .onChange(async (val) => {
+            this.plugin.settings.highlightSnippetTrigger = val.trim() || "/highlight";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(container)
+      .setName("Vocabulary Snippet Trigger")
+      .setDesc(
+        "Keyword trigger that automatically expands into a vocabulary entry block."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("/vocab")
+          .setValue(this.plugin.settings.vocabularySnippetTrigger)
+          .onChange(async (val) => {
+            this.plugin.settings.vocabularySnippetTrigger = val.trim() || "/vocab";
+            await this.plugin.saveSettings();
+          })
+      );
   }
 
   // ================= PROPERTIES TAB =================
@@ -240,6 +467,8 @@ export class GoodreadsSettingTab extends PluginSettingTab {
       author: "Author Name",
       goodreads_id: "Goodreads Book ID",
       shelf: "Reading Shelf (read, currently-reading, to-read)",
+      field: "Book Genre / Shelves",
+      genres: "Book Genre / Shelves",
       isbn: "ISBN",
       rating: "My Rating (1-5)",
       rating_stars: "My Rating Stars (★★★★★)",
@@ -322,6 +551,7 @@ export class GoodreadsSettingTab extends PluginSettingTab {
     // Select Field
     const selectField = addControls.createEl("select", { cls: "gr-select" });
     const availableFields = [
+      { id: "field", label: "Book Genre / Shelves (field)" },
       { id: "shelf", label: "Reading Shelf (read, currently-reading, to-read)" },
       { id: "title", label: "Book Title" },
       { id: "author", label: "Author Name" },
@@ -346,12 +576,16 @@ export class GoodreadsSettingTab extends PluginSettingTab {
 
     const newKeyInput = addControls.createEl("input", {
       type: "text",
-      placeholder: "Property key (e.g. my_shelf)",
-      value: "shelf"
+      placeholder: "Property key (e.g. field)",
+      value: "field"
     });
 
     selectField.addEventListener("change", () => {
-      newKeyInput.value = selectField.value === "rating" ? "my_rating" : selectField.value;
+      if (selectField.value === "rating") {
+        newKeyInput.value = "my_rating";
+      } else {
+        newKeyInput.value = selectField.value;
+      }
     });
 
     const addBtn = addControls.createEl("button", {
@@ -455,6 +689,22 @@ export class GoodreadsSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    if (this.plugin.settings.storageMode === "folder") {
+      new Setting(container)
+        .setName("Include 'Book Documents' Section")
+        .setDesc(
+          "Add a '## 📁 Book Documents' section with links to sub-notes inside the main book note (Folder storage mode)."
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.includeBookDocuments ?? true)
+            .onChange(async (val) => {
+              this.plugin.settings.includeBookDocuments = val;
+              await this.plugin.saveSettings();
+            })
+        );
+    }
 
     container.createEl("h3", { text: "Kindle Notes & Highlights" });
 

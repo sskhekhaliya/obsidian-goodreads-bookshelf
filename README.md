@@ -19,7 +19,14 @@ An elegant Obsidian plugin to browse your **Goodreads bookshelves** directly wit
 - 🔄 **Sync Highlights for Active Note**: Command to sync/refresh Kindle highlights on any existing book note at any time.
 - 📦 **Batch Save**: One-click action to save all visible books on a shelf into your vault.
 - 🏷️ **Smart Clean Filenames**: Automatically strips long subtitles (separated by `:` or `—` and edition tags) from file names while preserving the full book title in frontmatter properties.
+- 📁 **Modular Folder per Book Structure**: Choose between a clean single note or a dedicated folder per book containing:
+  - `<Book Title>.md`: Core book metadata, rating, synopsis, review, and dynamic links.
+  - `Highlights & Notes.md`: Kindle highlights & annotations without cluttering the main note.
+  - `My Thoughts.md`: Dedicated space for personal interpretations, insights, and takeaways.
+  - `Vocabulary.md`: Spaced Repetition / Flashcard-ready vocabulary tracker with configurable word heading levels (`###`, `##`).
 - ⚙️ **Smart Settings & Property Manager**:
+  - Switch between `Single File` and `Folder per Book` note organization.
+  - Toggle individual sub-notes and customize templates for `My Thoughts` and `Vocabulary`.
   - Customize, add, remove, and rename YAML frontmatter properties.
   - Enter numeric User ID or paste your full Goodreads profile URL.
   - Interactive "Verify Connection" test button.
@@ -68,6 +75,9 @@ title: "The Long Ships"
 author: "Frans G. Bengtsson"
 goodreads_id: "10081041"
 shelf: "read"
+field:
+  - adventure
+  - historical-fiction
 isbn: "159017416X"
 my_rating: 5
 average_rating: 4.38
@@ -79,9 +89,6 @@ cover: "https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/13
 goodreads_url: "https://www.goodreads.com/review/show/3634418775"
 tags:
   - book
-  - read
-  - adventure
-  - historical-fiction
 ---
 ![Book Cover|240](https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041.jpg)
 
@@ -118,6 +125,8 @@ tags:
 | `Open Goodreads Bookshelf View` | Opens the visual bookshelf view in a tab |
 | `Search Goodreads Books & Create Note` | Quick switcher style search modal to search and create a note |
 | `Sync Highlights for Active Book Note` | Fetches and updates latest Goodreads highlights for the currently open note |
+| `Insert Highlight Entry Template` | Inserts a clean highlight template block at cursor position |
+| `Insert Vocabulary Entry Template` | Inserts a clean vocabulary entry block at cursor position |
 | `Refresh Goodreads Bookshelf` | Reloads books from the Goodreads RSS feed |
 
 ---

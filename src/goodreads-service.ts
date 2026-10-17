@@ -110,20 +110,24 @@ export class GoodreadsService {
     cookie?: string
   ): Promise<GoodreadsHighlight[]> {
     const cleanUserId = this.extractUserId(userId);
-    if (!cleanUserId || !bookId) return [];
+    const cleanBookId =
+      String(bookId).trim().match(/^([0-9]+)/)?.[1] || String(bookId).trim();
+    if (!cleanUserId || !cleanBookId) return [];
 
-    const url = `https://www.goodreads.com/notes/${encodeURIComponent(bookId)}/${encodeURIComponent(cleanUserId)}`;
+    const url = `https://www.goodreads.com/notes/${encodeURIComponent(cleanBookId)}/${encodeURIComponent(cleanUserId)}`;
 
     const headers: Record<string, string> = {
       "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ObsidianGoodreadsBookshelf/1.0",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9"
     };
 
     if (cookie && cookie.trim()) {
-      const cleanCookie = cookie.trim().startsWith("_session_id2=")
-        ? cookie.trim()
-        : `_session_id2=${cookie.trim()}`;
+      let cleanCookie = cookie.trim();
+      if (!cleanCookie.includes("=")) {
+        cleanCookie = `_session_id2=${cleanCookie}`;
+      }
       headers["Cookie"] = cleanCookie;
     }
 
@@ -135,33 +139,65 @@ export class GoodreadsService {
       });
 
       if (response.status !== 200) {
+        console.warn(
+          `[Goodreads Bookshelf] Highlights request returned status ${response.status} for ${url}`
+        );
         return [];
       }
 
       const parser = new DOMParser();
       const doc = parser.parseFromString(response.text, "text/html");
-      const noteEls = Array.from(doc.querySelectorAll(".js-readingNote"));
+      const noteEls = Array.from(
+        doc.querySelectorAll(
+          ".js-readingNote, .readingNote, [data-reading-note-id], .readingNotes__note, .noteHighlightContainer, .readingNote__container"
+        )
+      );
 
       const highlights: GoodreadsHighlight[] = [];
 
       for (const el of noteEls) {
-        const id = el.getAttribute("data-reading-note-id") || "";
+        const id =
+          el.getAttribute("data-reading-note-id") ||
+          el.getAttribute("id") ||
+          "";
         const isSpoiler = el.getAttribute("data-is-spoiler") === "true";
 
         const locEl =
           el.querySelector(".noteHighlightContainer__location a") ||
-          el.querySelector(".noteHighlightContainer__location");
+          el.querySelector(".noteHighlightContainer__location") ||
+          el.querySelector(".readingNote__location") ||
+          el.querySelector(".readingNotes__location") ||
+          el.querySelector(".noteLocation") ||
+          el.querySelector(".location");
         const location = locEl?.textContent?.trim() || "";
 
         const textEl =
           el.querySelector(".noteHighlightTextContainer__highlightText span") ||
-          el.querySelector(".noteHighlightTextContainer__highlightText");
-        const text = this.cleanText(textEl?.textContent || "");
+          el.querySelector(".noteHighlightTextContainer__highlightText") ||
+          el.querySelector(".readingNote__highlightText") ||
+          el.querySelector(".readingNotes__highlight") ||
+          el.querySelector(".highlightText") ||
+          el.querySelector(".js-highlightText") ||
+          el.querySelector(".highlight") ||
+          el.querySelector("blockquote");
+        let text = this.cleanText(textEl?.textContent || "");
+        if (!text && el.getAttribute("data-highlight")) {
+          text = this.cleanText(el.getAttribute("data-highlight") || "");
+        }
 
         const userNoteEl =
+          el.querySelector(".noteHighlightTextContainer__noteContainer span") ||
           el.querySelector(".noteHighlightTextContainer__noteContainer") ||
-          el.querySelector(".noteText");
-        const note = this.cleanText(userNoteEl?.textContent || "");
+          el.querySelector(".readingNote__userNote") ||
+          el.querySelector(".readingNotes__userNote") ||
+          el.querySelector(".noteText") ||
+          el.querySelector(".userNote") ||
+          el.querySelector(".annotation") ||
+          el.querySelector(".note");
+        let note = this.cleanText(userNoteEl?.textContent || "");
+        if (!note && el.getAttribute("data-note")) {
+          note = this.cleanText(el.getAttribute("data-note") || "");
+        }
 
         if (text || note) {
           highlights.push({
@@ -174,9 +210,53 @@ export class GoodreadsService {
         }
       }
 
+      if (highlights.length === 0) {
+        // Fallback: check if notes are embedded in react props
+        const reactContainers = Array.from(
+          doc.querySelectorAll("[data-react-props]")
+        );
+        for (const container of reactContainers) {
+          const rawProps = container.getAttribute("data-react-props");
+          if (
+            rawProps &&
+            (rawProps.includes("highlight") ||
+              rawProps.includes("readingNote") ||
+              rawProps.includes("notes"))
+          ) {
+            try {
+              const parsed = JSON.parse(rawProps);
+              const items =
+                parsed.notes || parsed.readingNotes || parsed.highlights || [];
+              if (Array.isArray(items)) {
+                for (const item of items) {
+                  const itemText =
+                    item.text || item.highlight || item.body || "";
+                  const itemNote = item.note || item.comment || "";
+                  const itemLoc = item.location || item.page || "";
+                  if (itemText || itemNote) {
+                    highlights.push({
+                      id: String(item.id || ""),
+                      location: String(itemLoc),
+                      text: this.cleanText(itemText),
+                      note: this.cleanText(itemNote),
+                      isSpoiler: !!item.isSpoiler
+                    });
+                  }
+                }
+              }
+            } catch {
+              // ignore json parse error
+            }
+          }
+        }
+      }
+
       return highlights;
-    } catch {
-      // Highlights may not exist or may be private
+    } catch (err) {
+      console.warn(
+        `[Goodreads Bookshelf] Failed to fetch highlights from ${url}:`,
+        err
+      );
       return [];
     }
   }
@@ -211,11 +291,25 @@ export class GoodreadsService {
         return "";
       };
 
-      const bookId =
+      let bookId =
         getTagText("book_id") ||
+        item.querySelector("book > id")?.textContent?.trim() ||
         item.querySelector("book")?.getAttribute("id") ||
-        getTagText("guid") ||
         "";
+
+      if (!bookId || !/^[0-9]+$/.test(bookId)) {
+        const link = getTagText("link") || "";
+        const linkMatch = link.match(/\/book\/show\/([0-9]+)/);
+        if (linkMatch && linkMatch[1]) {
+          bookId = linkMatch[1];
+        } else {
+          const guid = getTagText("guid") || "";
+          const guidMatch = guid.match(/([0-9]+)$/);
+          if (guidMatch && guidMatch[1]) {
+            bookId = guidMatch[1];
+          }
+        }
+      }
 
       const title = this.cleanText(
         getTagText("title") || "Untitled Book"

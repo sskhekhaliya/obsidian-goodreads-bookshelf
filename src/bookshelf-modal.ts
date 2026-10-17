@@ -113,7 +113,16 @@ export class GoodreadsBookSuggestModal extends SuggestModal<GoodreadsBook> {
     try {
       const res = await noteService.createOrOpenBookNote(book);
       if (res.alreadyExisted) {
-        new Notice(`Opened existing note: "${book.title}"`);
+        if (res.highlightsCount > 0) {
+          new Notice(`Synced ${res.highlightsCount} Kindle highlights to "${book.title}"!`);
+        } else {
+          new Notice(`Opened existing note: "${book.title}"`);
+        }
+      } else if (res.highlightsCount > 0) {
+        new Notice(
+          `Created note for "${book.title}" with ${res.highlightsCount} Kindle highlights!`,
+          5000
+        );
       } else {
         new Notice(`Created book note: "${book.title}"`);
       }
