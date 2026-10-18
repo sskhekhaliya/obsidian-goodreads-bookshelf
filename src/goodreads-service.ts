@@ -30,7 +30,8 @@ export class GoodreadsService {
   static async fetchShelf(
     userId: string,
     shelf: string = "all",
-    maxItems: number = 100
+    maxItems: number = 100,
+    customShelves: string[] = []
   ): Promise<{ books: GoodreadsBook[]; shelfTitle: string }> {
     const cleanUserId = this.extractUserId(userId);
     if (!cleanUserId) {
@@ -75,12 +76,12 @@ export class GoodreadsService {
         break;
       }
 
-      const parsed = this.parseRssXml(responseText, shelf);
+      const parsed = this.parseRssXml(responseText, shelf, customShelves);
       if (parsed.shelfTitle) {
         shelfTitle = parsed.shelfTitle;
       }
 
-      if (parsed.books.length === 0) {
+      if (parsed.rawItemCount === 0) {
         break;
       }
 
@@ -91,7 +92,7 @@ export class GoodreadsService {
         }
       }
 
-      if (parsed.books.length < 100) {
+      if (parsed.rawItemCount < 100) {
         break;
       }
 
@@ -266,8 +267,9 @@ export class GoodreadsService {
    */
   private static parseRssXml(
     xmlText: string,
-    requestedShelf: string
-  ): { books: GoodreadsBook[]; shelfTitle: string } {
+    requestedShelf: string,
+    customShelves: string[] = []
+  ): { books: GoodreadsBook[]; shelfTitle: string; rawItemCount: number } {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlText, "text/xml");
 
@@ -281,6 +283,10 @@ export class GoodreadsService {
 
     const items = Array.from(xmlDoc.querySelectorAll("item"));
     const books: GoodreadsBook[] = [];
+
+    const lowerCustomShelves = (customShelves || [])
+      .map((s) => s.toLowerCase().trim())
+      .filter((s) => s.length > 0);
 
     for (const item of items) {
       const getTagText = (tag: string): string => {
@@ -411,16 +417,49 @@ export class GoodreadsService {
       const link = getTagText("link") || "";
       const guid = getTagText("guid") || "";
 
+      const lowerUserShelves = userShelves.map((s) => s.toLowerCase());
+
       let shelf = requestedShelf;
       if (shelf === "all") {
-        if (userReadAt || userRating > 0) {
-          shelf = "read";
-        } else if (userShelves.includes("currently-reading")) {
+        // Shelf matching precedence:
+        // 1. Explicit default exclusive status shelves
+        if (lowerUserShelves.includes("did-not-finish")) {
+          shelf = "did-not-finish";
+        } else if (lowerUserShelves.includes("currently-reading")) {
           shelf = "currently-reading";
-        } else if (userShelves.includes("to-read")) {
+        } else if (lowerUserShelves.includes("to-read")) {
           shelf = "to-read";
         } else {
-          shelf = "read";
+          // 2. Custom shelves configured in plugin settings
+          const matchedCustom = lowerCustomShelves.find((cs) =>
+            lowerUserShelves.includes(cs)
+          );
+          if (matchedCustom) {
+            shelf = matchedCustom;
+          } else {
+            // 3. Any custom shelf from Goodreads that is not a default status shelf (e.g. "manga")
+            const otherShelf = userShelves.find(
+              (s) =>
+                ![
+                  "read",
+                  "currently-reading",
+                  "to-read",
+                  "did-not-finish",
+                  "currently reading",
+                  "to read",
+                  "did not finish"
+                ].includes(s.toLowerCase().trim())
+            );
+            if (otherShelf) {
+              shelf = otherShelf.toLowerCase().trim();
+            } else if (lowerUserShelves.includes("read") || userReadAt) {
+              shelf = "read";
+            } else if (lowerUserShelves.length > 0) {
+              shelf = lowerUserShelves[0];
+            } else {
+              shelf = "read";
+            }
+          }
         }
       }
 
@@ -446,7 +485,7 @@ export class GoodreadsService {
       });
     }
 
-    return { books, shelfTitle };
+    return { books, shelfTitle, rawItemCount: items.length };
   }
 
   /**

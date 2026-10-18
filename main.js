@@ -163,7 +163,7 @@ var GoodreadsService = class {
   /**
    * Fetches books from Goodreads RSS feed for a specific shelf
    */
-  static async fetchShelf(userId, shelf = "all", maxItems = 100) {
+  static async fetchShelf(userId, shelf = "all", maxItems = 100, customShelves = []) {
     const cleanUserId = this.extractUserId(userId);
     if (!cleanUserId) {
       throw new Error(
@@ -201,11 +201,11 @@ var GoodreadsService = class {
         }
         break;
       }
-      const parsed = this.parseRssXml(responseText, shelf);
+      const parsed = this.parseRssXml(responseText, shelf, customShelves);
       if (parsed.shelfTitle) {
         shelfTitle = parsed.shelfTitle;
       }
-      if (parsed.books.length === 0) {
+      if (parsed.rawItemCount === 0) {
         break;
       }
       for (const book of parsed.books) {
@@ -214,7 +214,7 @@ var GoodreadsService = class {
           if (books.length >= maxItems) break;
         }
       }
-      if (parsed.books.length < 100) {
+      if (parsed.rawItemCount < 100) {
         break;
       }
       page++;
@@ -329,7 +329,7 @@ var GoodreadsService = class {
   /**
    * Parses XML RSS feed from Goodreads
    */
-  static parseRssXml(xmlText, requestedShelf) {
+  static parseRssXml(xmlText, requestedShelf, customShelves = []) {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlText, "text/xml");
     const parseError = xmlDoc.querySelector("parsererror");
@@ -340,6 +340,7 @@ var GoodreadsService = class {
     const shelfTitle = channel?.querySelector("title")?.textContent?.trim() || "";
     const items = Array.from(xmlDoc.querySelectorAll("item"));
     const books = [];
+    const lowerCustomShelves = (customShelves || []).map((s) => s.toLowerCase().trim()).filter((s) => s.length > 0);
     for (const item of items) {
       const getTagText = (tag) => {
         const byTag = item.getElementsByTagName(tag)[0]?.textContent;
@@ -420,16 +421,43 @@ var GoodreadsService = class {
       const description = this.cleanHtmlToMarkdown(bookDescHtml);
       const link = getTagText("link") || "";
       const guid = getTagText("guid") || "";
+      const lowerUserShelves = userShelves.map((s) => s.toLowerCase());
       let shelf = requestedShelf;
       if (shelf === "all") {
-        if (userReadAt || userRating > 0) {
-          shelf = "read";
-        } else if (userShelves.includes("currently-reading")) {
+        if (lowerUserShelves.includes("did-not-finish")) {
+          shelf = "did-not-finish";
+        } else if (lowerUserShelves.includes("currently-reading")) {
           shelf = "currently-reading";
-        } else if (userShelves.includes("to-read")) {
+        } else if (lowerUserShelves.includes("to-read")) {
           shelf = "to-read";
         } else {
-          shelf = "read";
+          const matchedCustom = lowerCustomShelves.find(
+            (cs) => lowerUserShelves.includes(cs)
+          );
+          if (matchedCustom) {
+            shelf = matchedCustom;
+          } else {
+            const otherShelf = userShelves.find(
+              (s) => ![
+                "read",
+                "currently-reading",
+                "to-read",
+                "did-not-finish",
+                "currently reading",
+                "to read",
+                "did not finish"
+              ].includes(s.toLowerCase().trim())
+            );
+            if (otherShelf) {
+              shelf = otherShelf.toLowerCase().trim();
+            } else if (lowerUserShelves.includes("read") || userReadAt) {
+              shelf = "read";
+            } else if (lowerUserShelves.length > 0) {
+              shelf = lowerUserShelves[0];
+            } else {
+              shelf = "read";
+            }
+          }
         }
       }
       books.push({
@@ -453,7 +481,7 @@ var GoodreadsService = class {
         shelf
       });
     }
-    return { books, shelfTitle };
+    return { books, shelfTitle, rawItemCount: items.length };
   }
   /**
    * Clean text content and remove HTML or entity artifacts
@@ -559,7 +587,12 @@ var GoodreadsSettingTab = class extends import_obsidian4.PluginSettingTab {
         btn.setButtonText("Testing...");
         btn.setDisabled(true);
         try {
-          const res = await GoodreadsService.fetchShelf(userId, "all", 10);
+          const res = await GoodreadsService.fetchShelf(
+            userId,
+            "all",
+            10,
+            this.plugin.settings.customShelves
+          );
           new import_obsidian4.Notice(
             `Success! Connected to "${res.shelfTitle}". Found books!`,
             5e3
@@ -971,12 +1004,26 @@ var GoodreadsSettingTab = class extends import_obsidian4.PluginSettingTab {
   // ================= SHELVES & SYNC TAB =================
   renderShelvesTab(container) {
     container.createEl("h3", { text: "Shelves & Syncing" });
-    new import_obsidian4.Setting(container).setName("Default Shelf").setDesc("Which shelf to load initially when opening the Bookshelf view.").addDropdown(
-      (dd) => dd.addOption("all", "All Books").addOption("currently-reading", "Currently Reading").addOption("read", "Read").addOption("to-read", "Want to Read").setValue(this.plugin.settings.defaultShelf).onChange(async (val) => {
+    new import_obsidian4.Setting(container).setName("Default Shelf").setDesc("Which shelf to load initially when opening the Bookshelf view.").addDropdown((dd) => {
+      dd.addOption("all", "All Books");
+      dd.addOption("currently-reading", "Currently Reading");
+      dd.addOption("read", "Read");
+      dd.addOption("to-read", "Want to Read");
+      dd.addOption("did-not-finish", "Did Not Finish");
+      for (const cs of this.plugin.settings.customShelves) {
+        const cleanCs = cs.trim();
+        if (cleanCs && !["all", "currently-reading", "read", "to-read", "did-not-finish"].includes(
+          cleanCs.toLowerCase()
+        )) {
+          dd.addOption(cleanCs, cleanCs.replace(/-/g, " "));
+        }
+      }
+      dd.setValue(this.plugin.settings.defaultShelf);
+      dd.onChange(async (val) => {
         this.plugin.settings.defaultShelf = val;
         await this.plugin.saveSettings();
-      })
-    );
+      });
+    });
     new import_obsidian4.Setting(container).setName("Custom Shelves").setDesc(
       "Additional Goodreads shelf names to display as tabs (comma-separated, e.g. favorites, sci-fi, biography)."
     ).addText(
@@ -1378,6 +1425,9 @@ var NoteService = class {
       "currently reading",
       "to-read",
       "to read",
+      "did-not-finish",
+      "did not finish",
+      "did_not_finish",
       (book.shelf || "").toLowerCase().trim(),
       (book.shelf || "").toLowerCase().replace(/[^a-z0-9_-]/g, "-")
     ]);
@@ -2031,7 +2081,8 @@ var GoodreadsBookshelfView = class extends import_obsidian6.ItemView {
       const res = await GoodreadsService.fetchShelf(
         userId,
         this.activeShelf,
-        this.plugin.settings.maxItems
+        this.plugin.settings.maxItems,
+        this.plugin.settings.customShelves
       );
       this.books = res.books;
       this.isLoading = false;
@@ -2165,12 +2216,14 @@ var GoodreadsBookshelfView = class extends import_obsidian6.ItemView {
       { id: "all", label: "All Books" },
       { id: "currently-reading", label: "Currently Reading" },
       { id: "read", label: "Read" },
-      { id: "to-read", label: "Want to Read" }
+      { id: "to-read", label: "Want to Read" },
+      { id: "did-not-finish", label: "Did Not Finish" }
     ];
     const allShelves = [...standardShelves];
     for (const cs of this.plugin.settings.customShelves) {
-      if (cs && !allShelves.some((s) => s.id === cs)) {
-        allShelves.push({ id: cs, label: cs });
+      const cleanCs = cs.trim();
+      if (cleanCs && !allShelves.some((s) => s.id.toLowerCase() === cleanCs.toLowerCase())) {
+        allShelves.push({ id: cleanCs, label: cleanCs.replace(/-/g, " ") });
       }
     }
     for (const shelf of allShelves) {
@@ -2438,7 +2491,7 @@ var GoodreadsBookshelfView = class extends import_obsidian6.ItemView {
       const shelfBadge = info.createSpan({
         cls: `gr-shelf-pill gr-shelf-${book.shelf}`
       });
-      shelfBadge.setText(book.shelf.replace("-", " "));
+      shelfBadge.setText(book.shelf.replace(/-/g, " "));
     }
     const actions = card.createDiv({ cls: "gr-card-actions" });
     const primaryBtn = actions.createEl("button", {
@@ -2530,7 +2583,7 @@ var GoodreadsBookshelfView = class extends import_obsidian6.ItemView {
     }
     if (book.shelf) {
       meta.createSpan({
-        text: book.shelf.replace("-", " "),
+        text: book.shelf.replace(/-/g, " "),
         cls: `gr-shelf-pill gr-shelf-${book.shelf}`
       });
     }
@@ -2647,7 +2700,8 @@ var GoodreadsBookSuggestModal = class extends import_obsidian7.SuggestModal {
       const res = await GoodreadsService.fetchShelf(
         userId,
         this.plugin.settings.defaultShelf || "all",
-        this.plugin.settings.maxItems
+        this.plugin.settings.maxItems,
+        this.plugin.settings.customShelves
       );
       this.books = res.books;
       this.isLoading = false;

@@ -112,7 +112,12 @@ export class GoodreadsSettingTab extends PluginSettingTab {
             btn.setDisabled(true);
 
             try {
-              const res = await GoodreadsService.fetchShelf(userId, "all", 10);
+              const res = await GoodreadsService.fetchShelf(
+                userId,
+                "all",
+                10,
+                this.plugin.settings.customShelves
+              );
               new Notice(
                 `Success! Connected to "${res.shelfTitle}". Found books!`,
                 5000
@@ -746,18 +751,31 @@ export class GoodreadsSettingTab extends PluginSettingTab {
     new Setting(container)
       .setName("Default Shelf")
       .setDesc("Which shelf to load initially when opening the Bookshelf view.")
-      .addDropdown((dd) =>
-        dd
-          .addOption("all", "All Books")
-          .addOption("currently-reading", "Currently Reading")
-          .addOption("read", "Read")
-          .addOption("to-read", "Want to Read")
-          .setValue(this.plugin.settings.defaultShelf)
-          .onChange(async (val) => {
-            this.plugin.settings.defaultShelf = val;
-            await this.plugin.saveSettings();
-          })
-      );
+      .addDropdown((dd) => {
+        dd.addOption("all", "All Books");
+        dd.addOption("currently-reading", "Currently Reading");
+        dd.addOption("read", "Read");
+        dd.addOption("to-read", "Want to Read");
+        dd.addOption("did-not-finish", "Did Not Finish");
+
+        for (const cs of this.plugin.settings.customShelves) {
+          const cleanCs = cs.trim();
+          if (
+            cleanCs &&
+            !["all", "currently-reading", "read", "to-read", "did-not-finish"].includes(
+              cleanCs.toLowerCase()
+            )
+          ) {
+            dd.addOption(cleanCs, cleanCs.replace(/-/g, " "));
+          }
+        }
+
+        dd.setValue(this.plugin.settings.defaultShelf);
+        dd.onChange(async (val) => {
+          this.plugin.settings.defaultShelf = val;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(container)
       .setName("Custom Shelves")

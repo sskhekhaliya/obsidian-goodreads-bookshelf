@@ -27,7 +27,8 @@ export class GoodreadsBookSuggestModal extends SuggestModal<GoodreadsBook> {
       const res = await GoodreadsService.fetchShelf(
         userId,
         this.plugin.settings.defaultShelf || "all",
-        this.plugin.settings.maxItems
+        this.plugin.settings.maxItems,
+        this.plugin.settings.customShelves
       );
       this.books = res.books;
       this.isLoading = false;

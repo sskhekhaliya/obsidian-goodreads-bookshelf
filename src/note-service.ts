@@ -520,6 +520,9 @@ export class NoteService {
       "currently reading",
       "to-read",
       "to read",
+      "did-not-finish",
+      "did not finish",
+      "did_not_finish",
       (book.shelf || "").toLowerCase().trim(),
       (book.shelf || "").toLowerCase().replace(/[^a-z0-9_-]/g, "-")
     ]);

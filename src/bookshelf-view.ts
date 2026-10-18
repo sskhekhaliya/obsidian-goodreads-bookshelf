@@ -76,7 +76,8 @@ export class GoodreadsBookshelfView extends ItemView {
       const res = await GoodreadsService.fetchShelf(
         userId,
         this.activeShelf,
-        this.plugin.settings.maxItems
+        this.plugin.settings.maxItems,
+        this.plugin.settings.customShelves
       );
       this.books = res.books;
       this.isLoading = false;
@@ -236,14 +237,16 @@ export class GoodreadsBookshelfView extends ItemView {
       { id: "all", label: "All Books" },
       { id: "currently-reading", label: "Currently Reading" },
       { id: "read", label: "Read" },
-      { id: "to-read", label: "Want to Read" }
+      { id: "to-read", label: "Want to Read" },
+      { id: "did-not-finish", label: "Did Not Finish" }
     ];
 
     // Include custom shelves from settings if any
     const allShelves = [...standardShelves];
     for (const cs of this.plugin.settings.customShelves) {
-      if (cs && !allShelves.some((s) => s.id === cs)) {
-        allShelves.push({ id: cs, label: cs });
+      const cleanCs = cs.trim();
+      if (cleanCs && !allShelves.some((s) => s.id.toLowerCase() === cleanCs.toLowerCase())) {
+        allShelves.push({ id: cleanCs, label: cleanCs.replace(/-/g, " ") });
       }
     }
 
@@ -565,7 +568,7 @@ export class GoodreadsBookshelfView extends ItemView {
       const shelfBadge = info.createSpan({
         cls: `gr-shelf-pill gr-shelf-${book.shelf}`
       });
-      shelfBadge.setText(book.shelf.replace("-", " "));
+      shelfBadge.setText(book.shelf.replace(/-/g, " "));
     }
 
     // Actions Row
@@ -683,7 +686,7 @@ export class GoodreadsBookshelfView extends ItemView {
 
     if (book.shelf) {
       meta.createSpan({
-        text: book.shelf.replace("-", " "),
+        text: book.shelf.replace(/-/g, " "),
         cls: `gr-shelf-pill gr-shelf-${book.shelf}`
       });
     }

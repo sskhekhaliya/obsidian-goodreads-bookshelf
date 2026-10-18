@@ -465,8 +465,8 @@
   border-radius: 4px;
   margin-top: 6px;
   font-weight: 500;
-  background: var(--background-modifier-border);
-  color: var(--text-muted);
+  background: rgba(245, 158, 11, 0.16);
+  color: #f59e0b;
 }
 
 .gr-shelf-currently-reading {
@@ -482,6 +482,11 @@
 .gr-shelf-to-read {
   background: rgba(59, 130, 246, 0.18);
   color: #3b82f6;
+}
+
+.gr-shelf-did-not-finish {
+  background: rgba(239, 68, 68, 0.18);
+  color: #ef4444;
 }
 
 /* Card Actions */
