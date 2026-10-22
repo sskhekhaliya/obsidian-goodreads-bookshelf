@@ -82,6 +82,9 @@ export interface GoodreadsPluginSettings {
   createThoughtsFile: boolean;
   createVocabularyFile: boolean;
   vocabularyHeadingLevel: HeadingLevel;
+  addVocabularyProperty: boolean;
+  vocabularyPropertyKey: string;
+  vocabularyPropertyValue: string;
   customThoughtsTemplate: string;
   customVocabularyTemplate: string;
   customHighlightsTemplate: string;
@@ -117,6 +120,9 @@ export const DEFAULT_SETTINGS: GoodreadsPluginSettings = {
   createThoughtsFile: true,
   createVocabularyFile: true,
   vocabularyHeadingLevel: "h3",
+  addVocabularyProperty: true,
+  vocabularyPropertyKey: "type",
+  vocabularyPropertyValue: "vocabulary",
   customThoughtsTemplate: "",
   customVocabularyTemplate: "",
   customHighlightsTemplate: "",

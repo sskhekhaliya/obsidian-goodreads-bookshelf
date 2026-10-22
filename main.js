@@ -67,6 +67,9 @@ var DEFAULT_SETTINGS = {
   createThoughtsFile: true,
   createVocabularyFile: true,
   vocabularyHeadingLevel: "h3",
+  addVocabularyProperty: true,
+  vocabularyPropertyKey: "type",
+  vocabularyPropertyValue: "vocabulary",
   customThoughtsTemplate: "",
   customVocabularyTemplate: "",
   customHighlightsTemplate: "",
@@ -688,6 +691,28 @@ var GoodreadsSettingTab = class extends import_obsidian4.PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
+      new import_obsidian4.Setting(container).setName("Add Frontmatter Property to Vocabulary").setDesc(
+        "Include a custom frontmatter property (e.g. type: vocabulary) in generated Vocabulary.md notes to easily identify and query them."
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.addVocabularyProperty !== false).onChange(async (val) => {
+          this.plugin.settings.addVocabularyProperty = val;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Vocabulary Property Key").setDesc("YAML frontmatter key name for identifying vocabulary notes.").addText(
+        (text) => text.setPlaceholder("type").setValue(this.plugin.settings.vocabularyPropertyKey || "type").onChange(async (val) => {
+          this.plugin.settings.vocabularyPropertyKey = val.trim();
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(container).setName("Vocabulary Property Value").setDesc("YAML frontmatter value for identifying vocabulary notes.").addText(
+        (text) => text.setPlaceholder("vocabulary").setValue(
+          this.plugin.settings.vocabularyPropertyValue || "vocabulary"
+        ).onChange(async (val) => {
+          this.plugin.settings.vocabularyPropertyValue = val.trim();
+          await this.plugin.saveSettings();
+        })
+      );
       new import_obsidian4.Setting(container).setName("Highlights & Notes Template File (Vault)").setDesc(
         "Choose a markdown template file from your vault for Highlights & Notes.md. Supports {{highlight}}, {{location}}, {{note}}, {{title}}, {{author}}, and {{book_link}}."
       ).addText((text) => {
@@ -1267,7 +1292,7 @@ var NoteService = class {
     return [
       `${h} Word`,
       "- **Definition**: ",
-      '- **Book Context**: ""',
+      '- **Source Context**: ""',
       "- **My Examples**:",
       "  1. "
     ].join("\n");
@@ -1403,17 +1428,26 @@ var NoteService = class {
     if (rawTemplate) {
       return rawTemplate.replace(/\{\{title\}\}/gi, mainTitle).replace(/\{\{author\}\}/gi, book.author).replace(/\{\{book_link\}\}/gi, `[[${mainLink}|${mainTitle}]]`).replace(/\{\{date\}\}/gi, today).replace(/\{\{shelf\}\}/gi, book.shelf || "read").replace(/\{\{h\}\}/gi, h);
     }
-    return [
+    const frontmatterLines = [
       "---",
-      `book: "[[${mainLink}|${mainTitle}]]"`,
-      "type: vocabulary",
+      `book: "[[${mainLink}|${mainTitle}]]"`
+    ];
+    if (this.settings.addVocabularyProperty !== false) {
+      const key = (this.settings.vocabularyPropertyKey || "type").trim();
+      const val = (this.settings.vocabularyPropertyValue || "vocabulary").trim();
+      if (key) {
+        frontmatterLines.push(`${key}: ${val}`);
+      }
+    }
+    frontmatterLines.push(
       "tags:",
       "  - book/vocabulary",
       "---",
       "",
       this.getSingleVocabularySnippet(),
       ""
-    ].join("\n");
+    );
+    return frontmatterLines.join("\n");
   }
   /**
    * Extracts clean genres from book userShelves, filtering out status shelves

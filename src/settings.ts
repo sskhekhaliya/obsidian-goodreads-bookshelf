@@ -281,6 +281,48 @@ export class GoodreadsSettingTab extends PluginSettingTab {
         );
 
       new Setting(container)
+        .setName("Add Frontmatter Property to Vocabulary")
+        .setDesc(
+          "Include a custom frontmatter property (e.g. type: vocabulary) in generated Vocabulary.md notes to easily identify and query them."
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.addVocabularyProperty !== false)
+            .onChange(async (val) => {
+              this.plugin.settings.addVocabularyProperty = val;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Vocabulary Property Key")
+        .setDesc("YAML frontmatter key name for identifying vocabulary notes.")
+        .addText((text) =>
+          text
+            .setPlaceholder("type")
+            .setValue(this.plugin.settings.vocabularyPropertyKey || "type")
+            .onChange(async (val) => {
+              this.plugin.settings.vocabularyPropertyKey = val.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
+        .setName("Vocabulary Property Value")
+        .setDesc("YAML frontmatter value for identifying vocabulary notes.")
+        .addText((text) =>
+          text
+            .setPlaceholder("vocabulary")
+            .setValue(
+              this.plugin.settings.vocabularyPropertyValue || "vocabulary"
+            )
+            .onChange(async (val) => {
+              this.plugin.settings.vocabularyPropertyValue = val.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(container)
         .setName("Highlights & Notes Template File (Vault)")
         .setDesc(
           "Choose a markdown template file from your vault for Highlights & Notes.md. Supports {{highlight}}, {{location}}, {{note}}, {{title}}, {{author}}, and {{book_link}}."

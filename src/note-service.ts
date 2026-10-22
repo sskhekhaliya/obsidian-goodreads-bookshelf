@@ -290,7 +290,7 @@ export class NoteService {
     return [
       `${h} Word`,
       "- **Definition**: ",
-      '- **Book Context**: ""',
+      '- **Source Context**: ""',
       "- **My Examples**:",
       "  1. "
     ].join("\n");
@@ -497,17 +497,29 @@ export class NoteService {
         .replace(/\{\{h\}\}/gi, h);
     }
 
-    return [
+    const frontmatterLines: string[] = [
       "---",
-      `book: "[[${mainLink}|${mainTitle}]]"`,
-      "type: vocabulary",
+      `book: "[[${mainLink}|${mainTitle}]]"`
+    ];
+
+    if (this.settings.addVocabularyProperty !== false) {
+      const key = (this.settings.vocabularyPropertyKey || "type").trim();
+      const val = (this.settings.vocabularyPropertyValue || "vocabulary").trim();
+      if (key) {
+        frontmatterLines.push(`${key}: ${val}`);
+      }
+    }
+
+    frontmatterLines.push(
       "tags:",
       "  - book/vocabulary",
       "---",
       "",
       this.getSingleVocabularySnippet(),
       ""
-    ].join("\n");
+    );
+
+    return frontmatterLines.join("\n");
   }
 
   /**
